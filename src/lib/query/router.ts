@@ -37,16 +37,34 @@ export function classifyIntent(
     });
   }
 
-  // Match company name in message
-  const matchedCompanies: typeof investorCompanies = [];
-  for (const co of investorCompanies) {
-    const nameParts = co.lowerName.split(/\s+/).filter((w) => w.length > 3);
-    const fullMatch = lower.includes(co.lowerName);
-    const partialMatch = nameParts.some((w) => lower.includes(w));
-    if (fullMatch || partialMatch) {
-      matchedCompanies.push(co);
-    }
+  // Score each company name against the message to avoid false partial matches.
+  //
+  // Scoring tiers:
+  //   1.0 — full lowercase name is present in the query (exact phrase match)
+  //   0.8 — all significant words (>3 chars) present, but not as exact phrase
+  //   0.5 × (fraction of significant words matched) — partial word overlap
+  //
+  // Only the highest-scoring tier is kept. If two companies tie at the same
+  // max score (e.g. "northpeak" alone matches both "Northpeak Analytics" and
+  // "Northpeak Health" at 0.25 each) they are flagged as ambiguous.
+  function scoreCompany(co: { lowerName: string }): number {
+    if (lower.includes(co.lowerName)) return 1.0;
+    const words = co.lowerName.split(/\s+/).filter((w) => w.length > 3);
+    if (words.length === 0) return 0;
+    const matched = words.filter((w) => lower.includes(w)).length;
+    if (matched === 0) return 0;
+    if (matched === words.length) return 0.8;
+    return (matched / words.length) * 0.5;
   }
+
+  const scored = investorCompanies
+    .map((co) => ({ co, score: scoreCompany(co) }))
+    .filter(({ score }) => score > 0);
+
+  const maxScore = scored.reduce((m, s) => Math.max(m, s.score), 0);
+  const matchedCompanies = scored
+    .filter(({ score }) => score === maxScore)
+    .map(({ co }) => co);
 
   if (matchedCompanies.length === 1) {
     const matched = matchedCompanies[0];

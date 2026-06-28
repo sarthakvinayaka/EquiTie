@@ -9,7 +9,8 @@ import { getObligations } from "@/lib/domain/obligations";
 import { getDistributions } from "@/lib/domain/distributions";
 import { getInvestorFeeBreakdown } from "@/lib/engine/fees";
 import type { FeeBreakdownResult } from "@/lib/engine/fees";
-import { getValuationHistory } from "@/lib/domain/valuations";
+import { getInvestorValuationTimeline } from "@/lib/engine/valuations";
+import type { ValuationTimelineResult } from "@/lib/engine/valuations";
 import { getAccountStatement } from "@/lib/domain/statement";
 import {
   buildInvestorProfile,
@@ -295,37 +296,78 @@ export async function POST(request: Request): Promise<NextResponse> {
 
         case "valuation_history": {
           const name = companyName ?? "";
-          if (!name) {
-            computedData = { error: "Please specify which company's valuation history you want to see." };
+          const engineResult = getInvestorValuationTimeline(investorId, name, db);
+          const valData = engineResult.result;
+          evidence = engineResult.evidence;
+
+          if (valData.noDataReason) {
+            computedData = {
+              error: valData.noDataReason,
+              warnings: engineResult.warnings,
+            };
             break;
           }
-          const data = getValuationHistory(investorId, name, db);
-          evidence = data.flatMap((h) => h.evidence);
+
+          // ── Data for LLM ──────────────────────────────────────────────────
           computedData = {
             reportDate: REPORT_DATE,
-            histories: data.map((h) => ({
-              company: h.companyName,
-              round: h.round,
-              dealCurrency: h.dealCurrency,
-              reportingCurrency: h.reportingCurrency,
-              entrySharePrice: fmt(h.entrySharePrice, h.dealCurrency),
-              yourEffectivePrice: fmt(h.effectiveSharePrice, h.dealCurrency),
-              units: fmtNum(h.units),
-              contributed: fmt(h.contributed, h.reportingCurrency),
-              marks: h.marks.map((m) => ({
+            reportingCurrency: valData.reportingCurrency,
+            assumptions: engineResult.assumptions,
+            warnings: engineResult.warnings,
+            timelines: valData.timelines.map((tl) => ({
+              company: tl.companyName,
+              round: tl.round,
+              dealCurrency: tl.dealCurrency,
+              dealStatus: tl.dealStatus,
+              contributed: fmt(tl.contributedRpt, tl.reportingCurrency),
+              entrySharePrice: fmt(tl.entrySharePrice, tl.dealCurrency),
+              yourEffectivePrice: fmt(tl.effectiveSharePrice, tl.dealCurrency),
+              units: fmtNum(tl.units),
+              markCount: tl.markCount,
+              spanYears: (tl.spanDays / 365).toFixed(1),
+              isSparse: tl.isSparse,
+              maxGapMonths: Math.round(tl.maxGapDays / 30),
+              latestMoic: tl.latestMoic !== null ? fmtMultiple(tl.latestMoic) : "N/A",
+              latestSharePrice: tl.latestSharePrice !== null
+                ? fmt(tl.latestSharePrice, tl.dealCurrency)
+                : "N/A",
+              latestInvestorValue: tl.latestInvestorValueRpt !== null
+                ? fmt(tl.latestInvestorValueRpt, tl.reportingCurrency)
+                : "N/A",
+              currentUnrealisedGainLoss: tl.currentUnrealisedGainLossRpt !== null
+                ? fmt(tl.currentUnrealisedGainLossRpt, tl.reportingCurrency)
+                : "N/A",
+              peakMoic: tl.peakMoic !== null ? fmtMultiple(tl.peakMoic) : "N/A",
+              peakMoicDate: tl.peakMoicDate ?? "N/A",
+              hasDownRound: tl.hasDownRound,
+              downRounds: tl.downRounds.map((dr) => ({
+                date: dr.date,
+                from: fmt(dr.fromPrice, tl.dealCurrency),
+                to: fmt(dr.toPrice, tl.dealCurrency),
+                drop: `${dr.pctDrop.toFixed(1)}%`,
+              })),
+              isWrittenOff: tl.isWrittenOff,
+              isExited: tl.isExited,
+              marks: tl.marks.map((m) => ({
                 date: m.date,
-                sharePrice: fmt(m.sharePrice, h.dealCurrency),
-                companyValuation: `${fmtNum(m.companyValuationM, 1)}M ${h.dealCurrency}`,
                 source: m.markSource,
+                sharePrice: fmt(m.sharePrice, tl.dealCurrency),
+                companyValuation: `${fmtNum(m.companyValuationM, 1)}M ${tl.dealCurrency}`,
                 multipleVsEntry: `${m.multipleVsEntry}×`,
-                yourValueAtMark:
-                  m.investorValueRpt !== null
-                    ? fmt(m.investorValueRpt, h.reportingCurrency)
-                    : "N/A",
+                priceChange: m.priceChangePct !== null
+                  ? `${m.priceChangePct >= 0 ? "+" : ""}${m.priceChangePct.toFixed(1)}%`
+                  : "—",
+                isDownRound: m.isDownRound,
+                yourValueAtMark: fmt(m.investorValueRpt, tl.reportingCurrency),
                 moicAtMark: m.moicAtMark !== null ? fmtMultiple(m.moicAtMark) : "N/A",
+                unrealisedGainLoss: fmt(m.unrealisedGainLossRpt, tl.reportingCurrency),
               })),
             })),
           };
+
+          // ── Structured card for UI ─────────────────────────────────────────
+          (computedData as Record<string, unknown>).__valuationCard =
+            buildValuationCard(valData, fmt, fmtMultiple, fmtNum);
           break;
         }
 
@@ -409,19 +451,18 @@ export async function POST(request: Request): Promise<NextResponse> {
       answer = formatFallbackAnswer(intent, computedData, profile);
     }
 
-    const response: ChatResponse & { feeCard?: unknown } = {
+    const response: ChatResponse & { feeCard?: unknown; valuationCard?: unknown } = {
       answer,
       intent,
       evidence,
       fallbackMode,
     };
 
-    // Attach the structured fee card when present
-    if (intent === "fee_detail" && computedData && typeof computedData === "object") {
+    // Attach structured cards when present
+    if (computedData && typeof computedData === "object") {
       const cd = computedData as Record<string, unknown>;
-      if (cd.__feeCard) {
-        response.feeCard = cd.__feeCard;
-      }
+      if (intent === "fee_detail" && cd.__feeCard) response.feeCard = cd.__feeCard;
+      if (intent === "valuation_history" && cd.__valuationCard) response.valuationCard = cd.__valuationCard;
     }
 
     return NextResponse.json(response);
@@ -431,6 +472,75 @@ export async function POST(request: Request): Promise<NextResponse> {
       err instanceof Error ? err.message : "An unexpected error occurred";
     return NextResponse.json({ error: message }, { status: 500 });
   }
+}
+
+// ─── Valuation card builder for UI ────────────────────────────────────────────
+
+function buildValuationCard(
+  valData: ValuationTimelineResult,
+  fmt: (n: number, ccy: string) => string,
+  fmtMultiple: (n: number | null) => string,
+  fmtNum: (n: number, d?: number) => string
+) {
+  return {
+    reportingCurrency: valData.reportingCurrency,
+    timelines: valData.timelines.map((tl) => ({
+      company: tl.companyName,
+      round: tl.round,
+      dealCurrency: tl.dealCurrency,
+      reportingCurrency: tl.reportingCurrency,
+      dealStatus: tl.dealStatus,
+      isWrittenOff: tl.isWrittenOff,
+      isExited: tl.isExited,
+      hasDownRound: tl.hasDownRound,
+      isSparse: tl.isSparse,
+      markCount: tl.markCount,
+      spanDays: tl.spanDays,
+      maxGapDays: tl.maxGapDays,
+      entrySharePrice: tl.entrySharePrice,
+      effectiveSharePrice: tl.effectiveSharePrice,
+      contributedDisplay: fmt(tl.contributedRpt, tl.reportingCurrency),
+      latestSharePrice: tl.latestSharePrice,
+      latestSharePriceDisplay: tl.latestSharePrice !== null
+        ? fmt(tl.latestSharePrice, tl.dealCurrency) : null,
+      latestMoic: tl.latestMoic,
+      latestMoicDisplay: fmtMultiple(tl.latestMoic),
+      latestInvestorValueDisplay: tl.latestInvestorValueRpt !== null
+        ? fmt(tl.latestInvestorValueRpt, tl.reportingCurrency) : null,
+      currentUnrealisedGainLoss: tl.currentUnrealisedGainLossRpt,
+      currentUnrealisedGainLossDisplay: tl.currentUnrealisedGainLossRpt !== null
+        ? fmt(tl.currentUnrealisedGainLossRpt, tl.reportingCurrency) : null,
+      peakMoic: tl.peakMoic,
+      peakMoicDisplay: fmtMultiple(tl.peakMoic),
+      peakMoicDate: tl.peakMoicDate,
+      downRounds: tl.downRounds.map((dr) => ({
+        date: dr.date,
+        prevDate: dr.prevDate,
+        fromPrice: dr.fromPrice,
+        toPrice: dr.toPrice,
+        pctDrop: dr.pctDrop,
+        dealCurrency: dr.dealCurrency,
+      })),
+      marks: tl.marks.map((m) => ({
+        valuationId: m.valuationId,
+        date: m.date,
+        sharePrice: m.sharePrice,
+        sharePriceDisplay: fmt(m.sharePrice, tl.dealCurrency),
+        companyValuationM: m.companyValuationM,
+        markSource: m.markSource,
+        multipleVsEntry: m.multipleVsEntry,
+        priceChangePct: m.priceChangePct,
+        isDownRound: m.isDownRound,
+        daysSincePreviousMark: m.daysSincePreviousMark,
+        investorValueRpt: m.investorValueRpt,
+        investorValueDisplay: fmt(m.investorValueRpt, tl.reportingCurrency),
+        moicAtMark: m.moicAtMark,
+        moicDisplay: m.moicAtMark !== null ? fmtMultiple(m.moicAtMark) : "N/A",
+        unrealisedGainLossRpt: m.unrealisedGainLossRpt,
+        unrealisedGainLossDisplay: fmt(m.unrealisedGainLossRpt, tl.reportingCurrency),
+      })),
+    })),
+  };
 }
 
 // ─── Fee card builder for UI ──────────────────────────────────────────────────

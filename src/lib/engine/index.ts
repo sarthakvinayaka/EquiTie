@@ -29,6 +29,8 @@ export { getInvestorStatementSummary } from "./statement";
 export { getInvestorSectorConcentration } from "./concentration";
 export { getInvestorFeeBreakdown } from "./fees";
 export type { FeeBreakdownResult, DealFeeResult, FeeScheduleLine, HistoricalFeeLine } from "./fees";
+export { getInvestorValuationTimeline } from "./valuations";
+export type { ValuationTimelineResult, ValuationTimeline, MarkAnalysis, DownRoundEvent, MarkSource } from "./valuations";
 
 // Re-export math utilities for testing
 export {

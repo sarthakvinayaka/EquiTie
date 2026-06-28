@@ -124,6 +124,62 @@ interface FeeCard {
   deals: FeeCardDeal[];
 }
 
+// ─── Valuation card types ──────────────────────────────────────────────────────
+
+interface ValuationMark {
+  valuationId: string;
+  date: string;
+  sharePrice: number;
+  sharePriceDisplay: string;
+  companyValuationM: number;
+  markSource: string;
+  multipleVsEntry: number;
+  priceChangePct: number | null;
+  isDownRound: boolean;
+  daysSincePreviousMark: number | null;
+  investorValueRpt: number;
+  investorValueDisplay: string;
+  moicAtMark: number | null;
+  moicDisplay: string;
+  unrealisedGainLossRpt: number;
+  unrealisedGainLossDisplay: string;
+}
+
+interface ValuationCardTimeline {
+  company: string;
+  round: string;
+  dealCurrency: string;
+  reportingCurrency: string;
+  dealStatus: string;
+  isWrittenOff: boolean;
+  isExited: boolean;
+  hasDownRound: boolean;
+  isSparse: boolean;
+  markCount: number;
+  spanDays: number;
+  maxGapDays: number;
+  entrySharePrice: number;
+  effectiveSharePrice: number;
+  contributedDisplay: string;
+  latestSharePrice: number | null;
+  latestSharePriceDisplay: string | null;
+  latestMoic: number | null;
+  latestMoicDisplay: string;
+  latestInvestorValueDisplay: string | null;
+  currentUnrealisedGainLoss: number | null;
+  currentUnrealisedGainLossDisplay: string | null;
+  peakMoic: number | null;
+  peakMoicDisplay: string;
+  peakMoicDate: string | null;
+  downRounds: { date: string; prevDate: string; fromPrice: number; toPrice: number; pctDrop: number; dealCurrency: string }[];
+  marks: ValuationMark[];
+}
+
+interface ValuationCard {
+  reportingCurrency: string;
+  timelines: ValuationCardTimeline[];
+}
+
 interface AssistantMessage {
   id: string;
   role: "user" | "assistant";
@@ -133,6 +189,7 @@ interface AssistantMessage {
   fallbackMode?: boolean;
   error?: boolean;
   feeCard?: FeeCard;
+  valuationCard?: ValuationCard;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -314,6 +371,7 @@ export default function InvestorPortal({
         evidence: data.evidence ?? [],
         fallbackMode: data.fallbackMode ?? false,
         feeCard: data.feeCard ?? undefined,
+        valuationCard: data.valuationCard ?? undefined,
       };
       setMessages((prev) => [...prev, assistantMsg]);
 
@@ -766,6 +824,10 @@ function MessageBubble({
             <FeeBreakdownCard feeCard={message.feeCard} />
           )}
 
+          {message.valuationCard && (
+            <ValuationTimelineCard card={message.valuationCard} />
+          )}
+
           {hasEvidence && (
             <button
               onClick={() => onViewSources(message.evidence!)}
@@ -926,6 +988,314 @@ function FeeCard({ deal, reportingCurrency }: { deal: FeeCardDeal; reportingCurr
     </div>
   );
 }
+
+// ─── Valuation Timeline Card ──────────────────────────────────────────────────
+
+const MARK_COLORS: Record<string, string> = {
+  "Entry": "#64748b",         // slate
+  "Internal": "#3b82f6",      // blue
+  "Markup Round": "#10b981",  // emerald
+  "Exit": "#6366f1",          // indigo
+  "Write Off": "#ef4444",     // red
+};
+
+function ValuationSparkline({ marks, dealCurrency, entrySharePrice }: {
+  marks: ValuationMark[];
+  dealCurrency: string;
+  entrySharePrice: number;
+}) {
+  if (marks.length < 2) return null;
+
+  const W = 440;
+  const H = 90;
+  const PAD = { top: 10, right: 12, bottom: 20, left: 8 };
+  const chartW = W - PAD.left - PAD.right;
+  const chartH = H - PAD.top - PAD.bottom;
+
+  const prices = marks.map((m) => m.sharePrice);
+  const minPrice = Math.min(...prices, entrySharePrice * 0.85);
+  const maxPrice = Math.max(...prices) * 1.05;
+  const priceRange = maxPrice - minPrice || 1;
+
+  const firstDate = new Date(marks[0].date).getTime();
+  const lastDate = new Date(marks[marks.length - 1].date).getTime();
+  const dateRange = lastDate - firstDate || 1;
+
+  const toX = (date: string) =>
+    PAD.left + ((new Date(date).getTime() - firstDate) / dateRange) * chartW;
+  const toY = (price: number) =>
+    PAD.top + chartH - ((price - minPrice) / priceRange) * chartH;
+
+  const entryY = toY(entrySharePrice);
+
+  const points = marks.map((m) => ({ x: toX(m.date), y: toY(m.sharePrice), m }));
+  const pathD = points
+    .map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`)
+    .join(" ");
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ maxHeight: H }}>
+      {/* Entry price reference line */}
+      <line
+        x1={PAD.left} y1={entryY} x2={W - PAD.right} y2={entryY}
+        stroke="#334155" strokeWidth="1" strokeDasharray="3 3"
+      />
+      <text x={W - PAD.right + 2} y={entryY + 3} fontSize="8" fill="#475569">entry</text>
+
+      {/* Line connecting marks */}
+      <path d={pathD} fill="none" stroke="#3b82f6" strokeWidth="1.5" strokeLinejoin="round" />
+
+      {/* Down-round shading */}
+      {points.map((p, i) => {
+        if (i === 0 || !p.m.isDownRound) return null;
+        const prev = points[i - 1];
+        return (
+          <rect
+            key={p.m.valuationId + "-shade"}
+            x={prev.x} y={PAD.top}
+            width={p.x - prev.x} height={chartH}
+            fill="#ef4444" fillOpacity="0.06"
+          />
+        );
+      })}
+
+      {/* Mark dots */}
+      {points.map((p) => (
+        <circle
+          key={p.m.valuationId}
+          cx={p.x} cy={p.y} r={4}
+          fill={p.m.isDownRound ? "#ef4444" : (MARK_COLORS[p.m.markSource] ?? "#64748b")}
+          stroke="#09090f" strokeWidth="1.5"
+        />
+      ))}
+
+      {/* Date labels: first and last */}
+      <text x={points[0].x} y={H - 2} fontSize="8" fill="#475569" textAnchor="middle">
+        {marks[0].date.slice(0, 7)}
+      </text>
+      <text x={points[points.length - 1].x} y={H - 2} fontSize="8" fill="#475569" textAnchor="middle">
+        {marks[marks.length - 1].date.slice(0, 7)}
+      </text>
+
+      {/* Price label at peak dot */}
+      {(() => {
+        const peak = [...points].sort((a, b) => b.m.sharePrice - a.m.sharePrice)[0];
+        return (
+          <text
+            x={peak.x} y={peak.y - 7}
+            fontSize="8" fill="#e2e8f0" textAnchor="middle"
+            fontWeight="600"
+          >
+            {peak.m.sharePriceDisplay}
+          </text>
+        );
+      })()}
+    </svg>
+  );
+}
+
+function ValuationTimelineCard({ card }: { card: ValuationCard }) {
+  if (card.timelines.length === 0) return null;
+
+  return (
+    <div className="mt-4 space-y-3">
+      {card.timelines.map((tl) => (
+        <ValuationTimelineItem key={`${tl.company}-${tl.round}`} tl={tl} />
+      ))}
+    </div>
+  );
+}
+
+function ValuationTimelineItem({ tl }: { tl: ValuationCardTimeline }) {
+  const [showTable, setShowTable] = useState(false);
+  const gainLoss = tl.currentUnrealisedGainLoss ?? 0;
+  const isGain = gainLoss >= 0;
+
+  return (
+    <div className="rounded-xl border border-base-border bg-base-elevated overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-base-border">
+        <div className="flex items-center gap-2">
+          <TrendingUp className="w-3.5 h-3.5 text-blue-400 flex-none" />
+          <span className="text-slate-200 text-sm font-medium">{tl.company}</span>
+          <span className="text-slate-500 text-xs">{tl.round}</span>
+          {tl.isWrittenOff && (
+            <span className="text-xs px-1.5 py-0.5 rounded bg-red-950 text-red-400 border border-red-900/50">Written Off</span>
+          )}
+          {tl.isExited && (
+            <span className="text-xs px-1.5 py-0.5 rounded bg-indigo-950 text-indigo-400 border border-indigo-900/50">Exited</span>
+          )}
+          {tl.hasDownRound && (
+            <span className="text-xs px-1.5 py-0.5 rounded bg-red-950/60 text-red-400 border border-red-900/40 flex items-center gap-1">
+              <TrendingDown className="w-3 h-3" /> Down round
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2 text-xs tabular-nums">
+          <span className="text-slate-500">{tl.markCount} marks · {Math.round(tl.spanDays / 365 * 10) / 10}yr</span>
+        </div>
+      </div>
+
+      {/* Sparkline */}
+      {tl.marks.length >= 2 && (
+        <div className="px-4 pt-3 pb-1">
+          <ValuationSparkline
+            marks={tl.marks}
+            dealCurrency={tl.dealCurrency}
+            entrySharePrice={tl.entrySharePrice}
+          />
+        </div>
+      )}
+
+      {/* Summary row */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-0 divide-x divide-base-border border-t border-base-border">
+        <div className="px-3 py-2.5">
+          <div className="text-[10px] text-slate-500 uppercase tracking-wide mb-0.5">Entry price</div>
+          <div className="text-slate-300 text-xs tabular-nums font-medium">
+            {tl.dealCurrency} {tl.entrySharePrice}
+          </div>
+          {tl.effectiveSharePrice !== tl.entrySharePrice && (
+            <div className="text-slate-500 text-[10px]">
+              Your price: {tl.dealCurrency} {tl.effectiveSharePrice}
+            </div>
+          )}
+        </div>
+        <div className="px-3 py-2.5">
+          <div className="text-[10px] text-slate-500 uppercase tracking-wide mb-0.5">Latest mark</div>
+          <div className="text-slate-300 text-xs tabular-nums font-medium">
+            {tl.latestSharePriceDisplay ?? "—"}
+          </div>
+        </div>
+        <div className="px-3 py-2.5">
+          <div className="text-[10px] text-slate-500 uppercase tracking-wide mb-0.5">Your MOIC</div>
+          <div className={clsx(
+            "text-xs tabular-nums font-semibold",
+            tl.latestMoic === null ? "text-slate-500"
+              : tl.latestMoic >= 2 ? "text-emerald-400"
+              : tl.latestMoic >= 1 ? "text-slate-200"
+              : "text-red-400"
+          )}>
+            {tl.latestMoicDisplay}
+          </div>
+          {tl.peakMoic !== null && tl.peakMoic !== tl.latestMoic && (
+            <div className="text-slate-600 text-[10px]">Peak: {tl.peakMoicDisplay} ({tl.peakMoicDate?.slice(0,7)})</div>
+          )}
+        </div>
+        <div className="px-3 py-2.5">
+          <div className="text-[10px] text-slate-500 uppercase tracking-wide mb-0.5">Gain / loss</div>
+          <div className={clsx(
+            "text-xs tabular-nums font-medium",
+            isGain ? "text-emerald-400" : "text-red-400"
+          )}>
+            {tl.currentUnrealisedGainLossDisplay ?? "—"}
+          </div>
+        </div>
+      </div>
+
+      {/* Flags */}
+      {(tl.isSparse || tl.hasDownRound || tl.isWrittenOff) && (
+        <div className="px-4 py-2.5 border-t border-base-border space-y-1.5">
+          {tl.isSparse && (
+            <div className="flex items-start gap-1.5 text-[11px] text-amber-400/80">
+              <Info className="w-3 h-3 flex-none mt-0.5" />
+              <span>Infrequent valuation cadence — longest gap: {Math.round(tl.maxGapDays / 30)} months. Value between marks is unobservable.</span>
+            </div>
+          )}
+          {tl.hasDownRound && tl.downRounds.map((dr) => (
+            <div key={dr.date} className="flex items-start gap-1.5 text-[11px] text-red-400/80">
+              <TrendingDown className="w-3 h-3 flex-none mt-0.5" />
+              <span>Down round on {dr.date}: {tl.dealCurrency} {dr.fromPrice} → {dr.toPrice} (−{dr.pctDrop.toFixed(1)}%)</span>
+            </div>
+          ))}
+          {tl.isWrittenOff && (
+            <div className="flex items-start gap-1.5 text-[11px] text-red-400/80">
+              <AlertTriangle className="w-3 h-3 flex-none mt-0.5" />
+              <span>Position written off — current value is zero.</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Toggle mark table */}
+      <div className="border-t border-base-border">
+        <button
+          onClick={() => setShowTable((s) => !s)}
+          className="w-full flex items-center justify-between px-4 py-2.5 text-xs text-slate-500 hover:text-slate-300 hover:bg-base-surface/50 transition-colors"
+        >
+          <span>Valuation marks ({tl.markCount})</span>
+          <ChevronDown className={clsx("w-3.5 h-3.5 transition-transform", showTable && "rotate-180")} />
+        </button>
+
+        {showTable && (
+          <div className="px-4 pb-3 overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-slate-600 border-b border-base-border">
+                  <th className="text-left py-1.5 pr-3 font-normal">Date</th>
+                  <th className="text-left py-1.5 pr-3 font-normal">Source</th>
+                  <th className="text-right py-1.5 pr-3 font-normal">Share price</th>
+                  <th className="text-right py-1.5 pr-3 font-normal">vs entry</th>
+                  <th className="text-right py-1.5 pr-3 font-normal">Chg</th>
+                  <th className="text-right py-1.5 pr-3 font-normal">Your value</th>
+                  <th className="text-right py-1.5 font-normal">MOIC</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tl.marks.map((m) => (
+                  <tr
+                    key={m.valuationId}
+                    className={clsx(
+                      "border-b border-base-border/50 last:border-0",
+                      m.isDownRound && "bg-red-950/10"
+                    )}
+                  >
+                    <td className="py-1.5 pr-3 text-slate-400 tabular-nums">{m.date}</td>
+                    <td className="py-1.5 pr-3">
+                      <span
+                        className="text-[10px] px-1 py-0.5 rounded"
+                        style={{
+                          color: MARK_COLORS[m.markSource] ?? "#64748b",
+                          background: (MARK_COLORS[m.markSource] ?? "#64748b") + "1a",
+                        }}
+                      >
+                        {m.markSource}
+                      </span>
+                    </td>
+                    <td className="py-1.5 pr-3 text-right tabular-nums text-slate-300">{m.sharePriceDisplay}</td>
+                    <td className="py-1.5 pr-3 text-right tabular-nums text-slate-400">{m.multipleVsEntry}×</td>
+                    <td className={clsx(
+                      "py-1.5 pr-3 text-right tabular-nums",
+                      m.priceChangePct === null ? "text-slate-600"
+                        : m.isDownRound ? "text-red-400"
+                        : m.priceChangePct > 0 ? "text-emerald-400"
+                        : "text-slate-400"
+                    )}>
+                      {m.priceChangePct === null
+                        ? "—"
+                        : `${m.priceChangePct >= 0 ? "+" : ""}${m.priceChangePct.toFixed(1)}%`}
+                    </td>
+                    <td className="py-1.5 pr-3 text-right tabular-nums text-slate-300">{m.investorValueDisplay}</td>
+                    <td className={clsx(
+                      "py-1.5 text-right tabular-nums font-medium",
+                      m.moicAtMark === null ? "text-slate-600"
+                        : m.moicAtMark >= 2 ? "text-emerald-400"
+                        : m.moicAtMark >= 1 ? "text-slate-300"
+                        : "text-red-400"
+                    )}>
+                      {m.moicDisplay}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Fee Schedule Row ─────────────────────────────────────────────────────────
 
 function FeeScheduleRow({ line, reportingCurrency }: { line: FeeCardScheduleLine; reportingCurrency: string }) {
   const hasChange = line.discounted || (line.standardDisplay !== line.effectiveDisplay);

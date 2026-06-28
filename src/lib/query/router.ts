@@ -113,7 +113,11 @@ export function classifyIntent(
     return { intent: "fee_detail", companyName: "" };
   }
 
-  if (/valuat|mark.?history|how.+value|price.+moved/.test(lower)) {
+  if (
+    /valuat|mark.?history|how.+value|price.+moved|down.?round|markup.?round|share.?price|latest.?mark|company.+worth/.test(
+      lower
+    )
+  ) {
     return { intent: "valuation_history", companyName: "" };
   }
 

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { getDatabase } from "@/lib/data/loader";
-import { validateInvestor } from "@/lib/policy/access";
+import { runPolicyChecks, runIntentPolicyChecks, runEvidenceIntegrityCheck } from "@/lib/policy/engine";
 import { classifyIntent } from "@/lib/query/router";
 import { getPortfolioOverview } from "@/lib/domain/portfolio";
 import { getPositionDetail } from "@/lib/domain/positions";
@@ -34,29 +34,57 @@ export async function POST(request: Request): Promise<NextResponse> {
 
     const db = getDatabase();
 
-    // ── Access policy ──────────────────────────────────────────────────────
-    const validation = validateInvestor(investorId, db);
-    if (!validation.valid) {
+    // ── Policy layer: pre-computation checks ───────────────────────────────
+    // Runs: investor exists → no cross-investor ref → no external data request
+    const policyResult = runPolicyChecks(investorId, message, db);
+    if (!policyResult.allowed) {
       return NextResponse.json(
-        { error: validation.reason ?? "Invalid investor" },
-        { status: 404 }
+        {
+          answer: policyResult.safeResponse ?? "This request cannot be processed.",
+          intent: "general_help" as const,
+          evidence: [],
+          fallbackMode: false,
+          policyViolation: policyResult.violationCode,
+        },
+        { status: 200 } // 200 so the UI renders the safe message naturally
       );
     }
+
+    // investorContext is guaranteed non-null after allowed=true
+    const investorContext = policyResult.investorContext!;
 
     // ── Intent classification ──────────────────────────────────────────────
     const intentResult = classifyIntent(message, investorId, db);
     const { intent, companyName, ambiguous } = intentResult;
 
+    // ── Policy layer: post-intent checks ──────────────────────────────────
+    // Runs: ambiguous entity → company in portfolio
+    const intentPolicy = runIntentPolicyChecks({
+      investorId,
+      intent,
+      companyName,
+      ambiguous,
+      investorContext,
+      db,
+    });
+    if (!intentPolicy.allowed) {
+      return NextResponse.json(
+        {
+          answer: intentPolicy.safeResponse ?? "Please clarify your request.",
+          intent,
+          evidence: [],
+          fallbackMode: false,
+          policyViolation: intentPolicy.violationCode,
+        },
+        { status: 200 }
+      );
+    }
+
     // ── Deterministic computation ──────────────────────────────────────────
     let computedData: unknown = null;
     let evidence: EvidenceItem[] = [];
 
-    if (ambiguous && ambiguous.length > 1) {
-      computedData = {
-        ambiguousCompanies: ambiguous,
-        message: `Multiple companies matched: ${ambiguous.join(", ")}. Please specify which one.`,
-      };
-    } else {
+    {
       switch (intent) {
         case "portfolio_overview": {
           const data = getPortfolioOverview(investorId, db);
@@ -302,6 +330,22 @@ export async function POST(request: Request): Promise<NextResponse> {
         default:
           computedData = { message: "I can help with portfolio overview, individual positions, fees, obligations, distributions, valuation history, and your account statement." };
       }
+    }
+
+    // ── Policy layer: evidence integrity check ─────────────────────────────
+    // Belt-and-suspenders: verify every evidence row belongs to this investor.
+    const evidenceCheck = runEvidenceIntegrityCheck(investorId, evidence, db);
+    if (!evidenceCheck.allowed) {
+      return NextResponse.json(
+        {
+          answer: evidenceCheck.safeResponse ?? "An internal error occurred.",
+          intent,
+          evidence: [],
+          fallbackMode: false,
+          policyViolation: evidenceCheck.violationCode,
+        },
+        { status: 500 }
+      );
     }
 
     // ── LLM formatting ─────────────────────────────────────────────────────

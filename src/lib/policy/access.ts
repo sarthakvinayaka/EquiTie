@@ -1,12 +1,37 @@
 /**
- * Investor access policy.
+ * Investor access policy — public API for the policy layer.
  *
- * Every domain function that reads investor data must call assertInvestorAccess
- * first. This is the single chokepoint that ensures one investor can never
- * read another investor's data, regardless of how the request is constructed.
+ * This module re-exports from the focused sub-modules and retains the legacy
+ * AccessDeniedError + assertInvestorAccess + filterToInvestor surface for
+ * backward compatibility with existing code.
+ *
+ * New code should prefer:
+ *   - runPolicyChecks()      from ./engine  (pre-computation gate)
+ *   - runIntentPolicyChecks() from ./engine  (post-intent gate)
+ *   - resolveInvestorContext() from ./context
+ *   - buildScopedDb()        from ./scoped
  */
 
 import type { Database } from "../data/loader";
+
+// ─── Re-exports from focused modules ──────────────────────────────────────────
+
+export type { InvestorContext, PolicyResult, PolicyCheckResult, IntentPolicyResult, PolicyViolationCode, PolicyLogEntry } from "./types";
+export { resolveInvestorContext } from "./context";
+export { buildScopedDb, assertScopedDbIntegrity } from "./scoped";
+export type { InvestorScopedDb } from "./scoped";
+export { runPolicyChecks, runIntentPolicyChecks, runEvidenceIntegrityCheck } from "./engine";
+export { getPolicyLog, getPolicyLogStats } from "./logger";
+export {
+  guardInvestorExists,
+  guardNoCrossInvestorRequest,
+  guardNoExternalDataRequest,
+  guardAmbiguousEntity,
+  guardCompanyInPortfolio,
+  guardEvidenceIntegrity,
+} from "./guards";
+
+// ─── Legacy API (kept for existing callers) ────────────────────────────────────
 
 export class AccessDeniedError extends Error {
   constructor(message: string) {
@@ -16,9 +41,8 @@ export class AccessDeniedError extends Error {
 }
 
 /**
- * Assert that requestedInvestorId is the logged-in investor.
- * In a production system this would compare against a session/JWT claim.
- * Here the logged-in investor is set at request time and passed explicitly.
+ * @deprecated Use runPolicyChecks() from ./engine instead.
+ * Kept for backward compatibility with code that calls assertInvestorAccess.
  */
 export function assertInvestorAccess(
   loggedInInvestorId: string,
@@ -32,8 +56,8 @@ export function assertInvestorAccess(
 }
 
 /**
- * Validate that an investorId exists in the dataset and is KYC-verified.
- * Returns the investor record if valid.
+ * @deprecated Use resolveInvestorContext() instead.
+ * Returns valid:true if the investor exists in the dataset.
  */
 export function validateInvestor(
   investorId: string,
@@ -43,13 +67,12 @@ export function validateInvestor(
   if (!investor) {
     return { valid: false, reason: "Investor not found" };
   }
-  // KYC-pending investors may still view their data — they just can't transact.
   return { valid: true };
 }
 
 /**
- * Filter any array of objects that have an investor_id field to only include
- * rows belonging to the logged-in investor. Defensive belt-and-suspenders.
+ * Belt-and-suspenders filter: given an array of rows that have an investor_id
+ * field, returns only those belonging to loggedInInvestorId.
  */
 export function filterToInvestor<T extends { investor_id?: string }>(
   rows: T[],

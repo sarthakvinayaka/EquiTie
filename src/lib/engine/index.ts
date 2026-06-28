@@ -27,6 +27,8 @@ export { getInvestorUpcomingObligations } from "./obligations";
 export { getInvestorDistributions } from "./distributions";
 export { getInvestorStatementSummary } from "./statement";
 export { getInvestorSectorConcentration } from "./concentration";
+export { getInvestorFeeBreakdown } from "./fees";
+export type { FeeBreakdownResult, DealFeeResult, FeeScheduleLine, HistoricalFeeLine } from "./fees";
 
 // Re-export math utilities for testing
 export {

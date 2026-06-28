@@ -16,6 +16,9 @@ import {
   BookOpen,
   Loader2,
   Sparkles,
+  Tag,
+  CheckCircle2,
+  Info,
 } from "lucide-react";
 import clsx from "clsx";
 import type { ChatMessage, EvidenceItem, QueryIntent } from "@/lib/domain/types";
@@ -72,6 +75,55 @@ interface SnapshotData {
   starterPrompts: string[];
 }
 
+// ─── Fee card types (mirrors the shape built in chat route's buildFeeCard) ────
+
+interface FeeCardScheduleLine {
+  feeType: string;
+  basis: string;
+  standardDisplay: string;
+  effectiveDisplay: string;
+  discounted: boolean;
+  savingDisplay: string | null;
+  savingRptDisplay: string | null;
+  undeterminable: boolean;
+  undeterminableReason: string | null;
+}
+
+interface FeeCardFeeLine {
+  feeId: string;
+  feeType: string;
+  period: string;
+  amountDisplay: string;
+  amountRptDisplay: string;
+  status: string;
+  hasDiscount: boolean;
+  dueDate: string;
+}
+
+interface FeeCardDeal {
+  company: string;
+  round: string;
+  dealCurrency: string;
+  hasDiscount: boolean;
+  noFeesYet: boolean;
+  plainSummary: string;
+  performanceFeeNote: string;
+  schedule: FeeCardScheduleLine[];
+  feeLines: FeeCardFeeLine[];
+  totalPaid: string;
+  totalUpcoming: string;
+  totalOverdue: string | null;
+  estimatedAnnualMgmtSaving: string | null;
+}
+
+interface FeeCard {
+  reportingCurrency: string;
+  hasAnyDiscount: boolean;
+  totalPaid: string;
+  totalUpcoming: string;
+  deals: FeeCardDeal[];
+}
+
 interface AssistantMessage {
   id: string;
   role: "user" | "assistant";
@@ -80,6 +132,7 @@ interface AssistantMessage {
   evidence?: EvidenceItem[];
   fallbackMode?: boolean;
   error?: boolean;
+  feeCard?: FeeCard;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -260,6 +313,7 @@ export default function InvestorPortal({
         intent: data.intent,
         evidence: data.evidence ?? [],
         fallbackMode: data.fallbackMode ?? false,
+        feeCard: data.feeCard ?? undefined,
       };
       setMessages((prev) => [...prev, assistantMsg]);
 
@@ -708,6 +762,10 @@ function MessageBubble({
             dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }}
           />
 
+          {message.feeCard && (
+            <FeeBreakdownCard feeCard={message.feeCard} />
+          )}
+
           {hasEvidence && (
             <button
               onClick={() => onViewSources(message.evidence!)}
@@ -721,6 +779,199 @@ function MessageBubble({
             </button>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Fee Breakdown Card ────────────────────────────────────────────────────────
+
+function FeeBreakdownCard({ feeCard }: { feeCard: FeeCard }) {
+  if (feeCard.deals.length === 0) return null;
+
+  return (
+    <div className="mt-4 space-y-3">
+      {/* Summary strip */}
+      {(feeCard.totalPaid !== "0" || feeCard.totalUpcoming !== "0") && (
+        <div className="flex items-center gap-3 text-xs text-slate-400">
+          <span>
+            <span className="text-slate-500">Paid:</span>{" "}
+            <span className="text-slate-200 font-medium tabular-nums">{feeCard.totalPaid}</span>
+          </span>
+          <span className="text-slate-700">·</span>
+          <span>
+            <span className="text-slate-500">Upcoming:</span>{" "}
+            <span className="text-slate-200 font-medium tabular-nums">{feeCard.totalUpcoming}</span>
+          </span>
+          {feeCard.hasAnyDiscount && (
+            <>
+              <span className="text-slate-700">·</span>
+              <span className="flex items-center gap-1 text-emerald-400">
+                <Tag className="w-3 h-3" />
+                Negotiated discount applied
+              </span>
+            </>
+          )}
+        </div>
+      )}
+
+      {feeCard.deals.map((deal) => (
+        <FeeCard key={`${deal.company}-${deal.round}`} deal={deal} reportingCurrency={feeCard.reportingCurrency} />
+      ))}
+    </div>
+  );
+}
+
+function FeeCard({ deal, reportingCurrency }: { deal: FeeCardDeal; reportingCurrency: string }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const statusCls = (s: string) =>
+    clsx("text-xs px-1.5 py-0.5 rounded font-medium", {
+      "bg-emerald-950 text-emerald-400 border border-emerald-900": s === "Paid",
+      "bg-amber-950 text-amber-400 border border-amber-900": s === "Upcoming",
+      "bg-red-950 text-red-400 border border-red-900": s === "Overdue",
+    });
+
+  return (
+    <div className="rounded-xl border border-base-border bg-base-elevated overflow-hidden">
+      {/* Card header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-base-border">
+        <div className="flex items-center gap-2">
+          <Tag className="w-3.5 h-3.5 text-orange-400 flex-none" />
+          <span className="text-slate-200 text-sm font-medium">{deal.company}</span>
+          <span className="text-slate-500 text-xs">{deal.round}</span>
+          {deal.hasDiscount && (
+            <span className="text-xs px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-900/50">
+              Discounted
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-3 text-xs tabular-nums">
+          <span className="text-slate-500">
+            Paid <span className="text-slate-300">{deal.totalPaid}</span>
+          </span>
+          {deal.totalOverdue && (
+            <span className="text-red-400 font-medium">Overdue {deal.totalOverdue}</span>
+          )}
+        </div>
+      </div>
+
+      {/* Plain summary */}
+      <div className="px-4 py-3 border-b border-base-border">
+        <p className="text-slate-400 text-xs leading-relaxed">{deal.plainSummary}</p>
+      </div>
+
+      {deal.noFeesYet ? (
+        <div className="px-4 py-3 flex items-center gap-2 text-slate-500 text-xs">
+          <Info className="w-3.5 h-3.5 flex-none text-slate-600" />
+          No fee history yet. Fees will appear here once capital is deployed.
+        </div>
+      ) : (
+        <>
+          {/* Fee schedule: standard vs effective */}
+          <div className="px-4 py-3">
+            <div className="text-xs text-slate-500 font-medium mb-2 uppercase tracking-wide">Fee schedule</div>
+            <div className="space-y-1.5">
+              {deal.schedule.map((line) => (
+                <FeeScheduleRow key={line.feeType} line={line} reportingCurrency={reportingCurrency} />
+              ))}
+            </div>
+          </div>
+
+          {/* Performance fee note */}
+          <div className="px-4 pb-3">
+            <div className="flex items-start gap-2 text-xs text-slate-500 bg-base-surface rounded-lg px-3 py-2">
+              <Info className="w-3 h-3 flex-none mt-0.5 text-slate-600" />
+              <span className="leading-relaxed">{deal.performanceFeeNote}</span>
+            </div>
+          </div>
+
+          {/* Toggle for historical fee lines */}
+          {deal.feeLines.length > 0 && (
+            <div className="border-t border-base-border">
+              <button
+                onClick={() => setExpanded((e) => !e)}
+                className="w-full flex items-center justify-between px-4 py-2.5 text-xs text-slate-500 hover:text-slate-300 hover:bg-base-surface/50 transition-colors"
+              >
+                <span>{deal.feeLines.length} fee line{deal.feeLines.length !== 1 ? "s" : ""}</span>
+                <ChevronDown className={clsx("w-3.5 h-3.5 transition-transform", expanded && "rotate-180")} />
+              </button>
+
+              {expanded && (
+                <div className="px-4 pb-3 space-y-1">
+                  {deal.feeLines.map((fl) => (
+                    <div
+                      key={fl.feeId}
+                      className="flex items-center justify-between text-xs py-1.5 border-b border-base-border last:border-0"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-slate-400 truncate">{fl.feeType}</span>
+                        <span className="text-slate-600">{fl.period}</span>
+                        {fl.hasDiscount && (
+                          <CheckCircle2 className="w-3 h-3 text-emerald-500 flex-none" />
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 flex-none ml-2">
+                        <span className="text-slate-300 tabular-nums">{fl.amountRptDisplay}</span>
+                        <span className={statusCls(fl.status)}>{fl.status}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function FeeScheduleRow({ line, reportingCurrency }: { line: FeeCardScheduleLine; reportingCurrency: string }) {
+  const hasChange = line.discounted || (line.standardDisplay !== line.effectiveDisplay);
+
+  return (
+    <div className={clsx(
+      "grid grid-cols-[1fr_auto_auto] gap-2 items-center text-xs py-1.5 px-2 rounded-lg",
+      line.discounted ? "bg-emerald-950/20" : "bg-transparent"
+    )}>
+      {/* Fee type + basis */}
+      <div>
+        <span className={clsx("font-medium", line.discounted ? "text-slate-200" : "text-slate-400")}>
+          {line.feeType}
+        </span>
+        <span className="text-slate-600 ml-1.5">{line.basis}</span>
+      </div>
+
+      {/* Standard → Effective */}
+      <div className="flex items-center gap-1.5 tabular-nums">
+        {hasChange ? (
+          <>
+            <span className="text-slate-600 line-through">{line.standardDisplay}</span>
+            <span className="text-slate-400">→</span>
+            <span className={line.discounted ? "text-emerald-400 font-medium" : "text-slate-300"}>
+              {line.effectiveDisplay}
+            </span>
+          </>
+        ) : (
+          <span className="text-slate-400">{line.effectiveDisplay}</span>
+        )}
+      </div>
+
+      {/* Saving or undeterminable tag */}
+      <div className="text-right min-w-[80px]">
+        {line.undeterminable ? (
+          <span className="text-slate-600 italic">at exit</span>
+        ) : line.savingDisplay ? (
+          <div>
+            <span className="text-emerald-400 font-medium">{line.savingDisplay}</span>
+            {line.savingRptDisplay && (
+              <div className="text-emerald-600 text-[10px]">≈ {line.savingRptDisplay} / period</div>
+            )}
+          </div>
+        ) : (
+          <span className="text-slate-700">—</span>
+        )}
       </div>
     </div>
   );

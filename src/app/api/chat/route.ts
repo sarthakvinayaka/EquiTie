@@ -7,7 +7,8 @@ import { getPortfolioOverview } from "@/lib/domain/portfolio";
 import { getPositionDetail } from "@/lib/domain/positions";
 import { getObligations } from "@/lib/domain/obligations";
 import { getDistributions } from "@/lib/domain/distributions";
-import { getFeeBreakdown } from "@/lib/domain/fees";
+import { getInvestorFeeBreakdown } from "@/lib/engine/fees";
+import type { FeeBreakdownResult } from "@/lib/engine/fees";
 import { getValuationHistory } from "@/lib/domain/valuations";
 import { getAccountStatement } from "@/lib/domain/statement";
 import {
@@ -228,29 +229,49 @@ export async function POST(request: Request): Promise<NextResponse> {
 
         case "fee_detail": {
           const name = companyName ?? "";
-          const data = getFeeBreakdown(investorId, name, db);
-          evidence = data.flatMap((d) => d.evidence);
+          const engineResult = getInvestorFeeBreakdown(investorId, name, db);
+          const feeData = engineResult.result;
+          evidence = engineResult.evidence;
+
+          // ── Data for LLM (phrasing only, all maths already done) ───────────
           computedData = {
             reportDate: REPORT_DATE,
-            reportingCurrency: db.investors.get(investorId)!.reporting_currency,
-            deals: data.map((d) => ({
+            reportingCurrency: feeData.reportingCurrency,
+            hasAnyDiscount: feeData.hasAnyDiscount,
+            totalFeesPaid: fmt(feeData.totalPaidRpt, feeData.reportingCurrency),
+            totalFeesUpcoming: fmt(feeData.totalUpcomingRpt, feeData.reportingCurrency),
+            assumptions: engineResult.assumptions,
+            warnings: engineResult.warnings,
+            deals: feeData.deals.map((d) => ({
               company: d.companyName,
               round: d.round,
-              dealCurrency: d.dealCurrency,
-              hasNegotiatedDiscount: d.feeDiscount,
-              standardSchedule: {
-                mgmtFeePct: `${d.stdMgmtFeePct}%`,
-                performanceFeePct: `${d.stdPerfFeePct}%`,
-                structuringFeePct: `${d.stdStructuringFeePct}%`,
-                adminFeeUsd: fmt(d.stdAdminFeeUsd, "USD"),
-              },
-              yourEffectiveRates: {
-                mgmtFeePct: `${d.effMgmtFeePct}%`,
-                performanceFeePct: `${d.effPerfFeePct}%`,
-                structuringFeePct: `${d.effStructuringFeePct}%`,
-                adminFeeUsd: fmt(d.effAdminFeeUsd, "USD"),
-              },
-              feeLines: d.fees.map((f) => ({
+              hasNegotiatedDiscount: d.hasNegotiatedDiscount,
+              noFeesYet: d.noFeesYet,
+              plainSummary: d.plainSummary,
+              performanceFeeNote: d.performanceFeeNote,
+              schedule: d.schedule.map((s) => ({
+                type: s.feeType,
+                basis: s.basis,
+                standard: s.basis === "flat USD"
+                  ? fmt(s.standardRate, "USD")
+                  : `${s.standardRate}%`,
+                effective: s.basis === "flat USD"
+                  ? fmt(s.effectiveRate, "USD")
+                  : `${s.effectiveRate}%`,
+                discounted: s.discounted,
+                saving: s.savingUndeterminable
+                  ? "Cannot determine before exit"
+                  : s.savingPp !== null
+                  ? `-${s.savingPp.toFixed(2)} pp`
+                  : s.savingUsd !== null
+                  ? `USD ${s.savingUsd.toFixed(0)} saved`
+                  : null,
+                savingRpt: s.savingRpt !== null
+                  ? fmt(s.savingRpt, feeData.reportingCurrency)
+                  : null,
+                undeterminableReason: s.undeterminableReason,
+              })),
+              feeLines: d.feeLines.map((f) => ({
                 type: f.feeType,
                 period: f.period,
                 amount: fmt(f.amountNativeCcy, f.nativeCurrency),
@@ -261,8 +282,14 @@ export async function POST(request: Request): Promise<NextResponse> {
               })),
               totalPaid: fmt(d.totalPaidRpt, d.reportingCurrency),
               totalUpcoming: fmt(d.totalUpcomingRpt, d.reportingCurrency),
+              estimatedAnnualMgmtSaving: d.estimatedAnnualMgmtSavingRpt !== null
+                ? fmt(d.estimatedAnnualMgmtSavingRpt, d.reportingCurrency)
+                : null,
             })),
           };
+
+          // ── Structured fee card for UI rendering ────────────────────────────
+          (computedData as Record<string, unknown>).__feeCard = buildFeeCard(feeData);
           break;
         }
 
@@ -382,12 +409,20 @@ export async function POST(request: Request): Promise<NextResponse> {
       answer = formatFallbackAnswer(intent, computedData, profile);
     }
 
-    const response: ChatResponse = {
+    const response: ChatResponse & { feeCard?: unknown } = {
       answer,
       intent,
       evidence,
       fallbackMode,
     };
+
+    // Attach the structured fee card when present
+    if (intent === "fee_detail" && computedData && typeof computedData === "object") {
+      const cd = computedData as Record<string, unknown>;
+      if (cd.__feeCard) {
+        response.feeCard = cd.__feeCard;
+      }
+    }
 
     return NextResponse.json(response);
   } catch (err) {
@@ -396,6 +431,65 @@ export async function POST(request: Request): Promise<NextResponse> {
       err instanceof Error ? err.message : "An unexpected error occurred";
     return NextResponse.json({ error: message }, { status: 500 });
   }
+}
+
+// ─── Fee card builder for UI ──────────────────────────────────────────────────
+
+function buildFeeCard(feeData: FeeBreakdownResult) {
+  return {
+    reportingCurrency: feeData.reportingCurrency,
+    hasAnyDiscount: feeData.hasAnyDiscount,
+    totalPaid: fmt(feeData.totalPaidRpt, feeData.reportingCurrency),
+    totalUpcoming: fmt(feeData.totalUpcomingRpt, feeData.reportingCurrency),
+    deals: feeData.deals.map((d) => ({
+      company: d.companyName,
+      round: d.round,
+      dealCurrency: d.dealCurrency,
+      hasDiscount: d.hasNegotiatedDiscount,
+      noFeesYet: d.noFeesYet,
+      plainSummary: d.plainSummary,
+      performanceFeeNote: d.performanceFeeNote,
+      schedule: d.schedule.map((s) => ({
+        feeType: s.feeType,
+        basis: s.basis,
+        standardDisplay: s.basis === "flat USD"
+          ? `USD ${s.standardRate.toLocaleString("en-US", { maximumFractionDigits: 0 })}`
+          : `${s.standardRate}%`,
+        effectiveDisplay: s.basis === "flat USD"
+          ? `USD ${s.effectiveRate.toLocaleString("en-US", { maximumFractionDigits: 0 })}`
+          : `${s.effectiveRate}%`,
+        discounted: s.discounted,
+        savingDisplay: s.savingUndeterminable
+          ? null
+          : s.savingPp !== null
+          ? `−${s.savingPp.toFixed(2)} pp`
+          : s.savingUsd !== null
+          ? `USD ${s.savingUsd.toFixed(0)} saved`
+          : null,
+        savingRptDisplay: s.savingRpt !== null
+          ? fmt(s.savingRpt, feeData.reportingCurrency)
+          : null,
+        undeterminable: s.savingUndeterminable,
+        undeterminableReason: s.undeterminableReason,
+      })),
+      feeLines: d.feeLines.map((f) => ({
+        feeId: f.feeId,
+        feeType: f.feeType,
+        period: f.period,
+        amountDisplay: fmt(f.amountNativeCcy, f.nativeCurrency),
+        amountRptDisplay: fmt(f.amountRpt, d.reportingCurrency),
+        status: f.status,
+        hasDiscount: f.hasDiscount,
+        dueDate: f.dueDate,
+      })),
+      totalPaid: fmt(d.totalPaidRpt, d.reportingCurrency),
+      totalUpcoming: fmt(d.totalUpcomingRpt, d.reportingCurrency),
+      totalOverdue: d.totalOverdueRpt > 0 ? fmt(d.totalOverdueRpt, d.reportingCurrency) : null,
+      estimatedAnnualMgmtSaving: d.estimatedAnnualMgmtSavingRpt !== null
+        ? fmt(d.estimatedAnnualMgmtSavingRpt, d.reportingCurrency)
+        : null,
+    })),
+  };
 }
 
 /**

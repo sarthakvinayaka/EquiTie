@@ -15,15 +15,16 @@ import {
   FileText,
   BookOpen,
   Loader2,
-  Sparkles,
   Tag,
   CheckCircle2,
   Info,
+  ArrowUpRight,
+  Activity,
 } from "lucide-react";
 import clsx from "clsx";
 import type { ChatMessage, EvidenceItem, QueryIntent } from "@/lib/domain/types";
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+// ─── Types ─────────────────────────────────────────────────────────────────────
 
 interface Investor {
   id: string;
@@ -75,7 +76,7 @@ interface SnapshotData {
   starterPrompts: string[];
 }
 
-// ─── Fee card types (mirrors the shape built in chat route's buildFeeCard) ────
+// ─── Fee card types ────────────────────────────────────────────────────────────
 
 interface FeeCardScheduleLine {
   feeType: string;
@@ -203,6 +204,8 @@ interface RouterDebugData {
   evidenceCount: number;
 }
 
+// ─── Answer object types ───────────────────────────────────────────────────────
+
 interface KeyMetricData {
   label: string;
   value: string;
@@ -246,7 +249,7 @@ interface AssistantMessage {
   answerObject?: AnswerObjectData;
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Helpers ───────────────────────────────────────────────────────────────────
 
 function renderMarkdown(text: string): string {
   return text
@@ -274,61 +277,70 @@ function renderMarkdown(text: string): string {
 }
 
 function MoicBadge({ moic }: { moic: number | null }) {
-  if (moic === null) return <span className="text-slate-500 text-xs">N/A</span>;
-  const isUp = moic >= 1;
-  const isDown = moic < 1;
+  if (moic === null) return <span className="text-slate-600 text-xs tabular-nums">N/A</span>;
+  const color = moic >= 2 ? "text-emerald-400" : moic >= 1 ? "text-slate-300" : "text-red-400";
+  const Icon = moic >= 1 ? TrendingUp : TrendingDown;
   return (
-    <span
-      className={clsx(
-        "inline-flex items-center gap-0.5 text-xs font-semibold tabular-nums",
-        isUp ? "text-emerald-400" : isDown ? "text-red-400" : "text-slate-400"
-      )}
-    >
-      {isUp ? (
-        <TrendingUp className="w-3 h-3" />
-      ) : isDown ? (
-        <TrendingDown className="w-3 h-3" />
-      ) : (
-        <Minus className="w-3 h-3" />
-      )}
+    <span className={clsx("inline-flex items-center gap-0.5 text-xs font-semibold tabular-nums", color)}>
+      <Icon className="w-3 h-3" />
       {moic.toFixed(2)}×
     </span>
   );
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const cls = clsx("badge-active", {
+  const cls = clsx({
     "badge-active": status === "Active" || status === "Verified",
     "badge-exited": status === "Exited",
     "badge-written-off": status === "Written Off",
     "badge-pending": status === "Pending",
+    "badge-overdue": status === "Overdue",
   });
   return <span className={cls}>{status}</span>;
 }
 
 function SourceTypePill({ type }: { type: EvidenceItem["sourceType"] }) {
   const labels: Record<EvidenceItem["sourceType"], string> = {
-    allocation: "Allocation",
-    valuation: "Valuation",
-    capital_call: "Capital Call",
-    fee: "Fee",
-    distribution: "Distribution",
-    statement_line: "Statement",
-    deal: "Deal",
+    allocation: "Alloc", valuation: "Val", capital_call: "Call",
+    fee: "Fee", distribution: "Dist", statement_line: "Stmt", deal: "Deal",
   };
   const colors: Record<EvidenceItem["sourceType"], string> = {
-    allocation: "bg-teal-950 text-teal-400 border-teal-900",
-    valuation: "bg-blue-950 text-blue-400 border-blue-900",
-    capital_call: "bg-amber-950 text-amber-400 border-amber-900",
-    fee: "bg-orange-950 text-orange-400 border-orange-900",
-    distribution: "bg-emerald-950 text-emerald-400 border-emerald-900",
-    statement_line: "bg-purple-950 text-purple-400 border-purple-900",
-    deal: "bg-slate-800 text-slate-400 border-slate-700",
+    allocation: "bg-teal-950/80 text-teal-400 border-teal-900/60",
+    valuation: "bg-blue-950/80 text-blue-400 border-blue-900/60",
+    capital_call: "bg-amber-950/80 text-amber-400 border-amber-900/60",
+    fee: "bg-orange-950/80 text-orange-400 border-orange-900/60",
+    distribution: "bg-emerald-950/80 text-emerald-400 border-emerald-900/60",
+    statement_line: "bg-slate-800/80 text-slate-400 border-slate-700/60",
+    deal: "bg-slate-800/60 text-slate-500 border-slate-700/40",
   };
   return (
-    <span className={clsx("text-xs px-1.5 py-0.5 rounded border", colors[type])}>
-      {labels[type]}
-    </span>
+    <span className={clsx("source-pill", colors[type])}>{labels[type]}</span>
+  );
+}
+
+const INTENT_LABELS: Record<string, string> = {
+  portfolio_overview: "Portfolio Overview",
+  position_detail: "Position Detail",
+  obligations: "Upcoming Obligations",
+  distributions: "Distributions",
+  fee_detail: "Fee Breakdown",
+  valuation_history: "Valuation History",
+  account_statement: "Account Statement",
+  glossary_or_metric_explanation: "Definition",
+  unsupported_or_ambiguous: "Clarification",
+  general_help: "General",
+};
+
+// ─── Logo mark ─────────────────────────────────────────────────────────────────
+
+function LogoMark({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+      <rect x="2" y="2" width="9" height="9" rx="1.5" fill="currentColor" opacity="0.9" />
+      <rect x="13" y="2" width="9" height="9" rx="1.5" fill="currentColor" opacity="0.5" />
+      <rect x="2" y="13" width="9" height="9" rx="1.5" fill="currentColor" opacity="0.5" />
+      <rect x="13" y="13" width="9" height="9" rx="1.5" fill="currentColor" opacity="0.25" />
+    </svg>
   );
 }
 
@@ -356,7 +368,6 @@ export default function InvestorPortal({
   const hasFallbackMode = messages.some((m) => m.fallbackMode);
   const isDev = process.env.NODE_ENV === "development";
 
-  // Load snapshot whenever investor changes
   const loadSnapshot = useCallback(async (investorId: string) => {
     setSnapshotLoading(true);
     try {
@@ -378,7 +389,6 @@ export default function InvestorPortal({
     setEvidencePanelOpen(false);
   }, [selectedInvestorId, loadSnapshot]);
 
-  // Auto-scroll chat
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isThinking]);
@@ -397,28 +407,17 @@ export default function InvestorPortal({
     setIsThinking(true);
 
     try {
-      const history: ChatMessage[] = messages.map((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
-
+      const history: ChatMessage[] = messages.map((m) => ({ role: m.role, content: m.content }));
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: userText,
-          investorId: selectedInvestorId,
-          history,
-        }),
+        body: JSON.stringify({ message: userText, investorId: selectedInvestorId, history }),
       });
-
       if (!res.ok) {
         const err = await res.json();
         throw new Error(err.error ?? "Request failed");
       }
-
       const data = await res.json();
-
       const assistantMsg: AssistantMessage = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
@@ -432,7 +431,6 @@ export default function InvestorPortal({
         answerObject: data.answerObject ?? undefined,
       };
       setMessages((prev) => [...prev, assistantMsg]);
-
       if (data.evidence?.length > 0) {
         setActiveEvidence(data.evidence);
         setEvidencePanelOpen(true);
@@ -443,10 +441,7 @@ export default function InvestorPortal({
         {
           id: (Date.now() + 1).toString(),
           role: "assistant",
-          content:
-            err instanceof Error
-              ? `Sorry, something went wrong: ${err.message}`
-              : "An unexpected error occurred.",
+          content: err instanceof Error ? err.message : "An unexpected error occurred.",
           error: true,
         },
       ]);
@@ -456,68 +451,88 @@ export default function InvestorPortal({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); }
   };
 
   const currentInvestor = investors.find((i) => i.id === selectedInvestorId);
 
   return (
-    <div className="flex flex-col h-screen bg-[#09090f]">
-      {/* ── Top nav ─────────────────────────────────────────────────────────── */}
-      <header className="flex-none flex items-center justify-between px-6 py-3 border-b border-base-border bg-base-surface">
-        <div className="flex items-center gap-3">
-          {/* Logo */}
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-accent flex items-center justify-center">
-              <span className="text-slate-950 font-bold text-sm">E</span>
-            </div>
-            <div>
-              <div className="text-slate-100 font-semibold text-sm leading-none">EquiTie</div>
-              <div className="text-slate-500 text-xs leading-none mt-0.5">Investor Portal</div>
-            </div>
-          </div>
+    <div className="flex flex-col h-screen bg-base">
 
-          <div className="w-px h-8 bg-base-border mx-2" />
+      {/* ── Top bar ───────────────────────────────────────────────────────────── */}
+      <header className="flex-none h-13 flex items-center justify-between px-5 border-b border-base-border bg-base-surface" style={{ height: "52px" }}>
+
+        {/* Brand */}
+        <div className="flex items-center gap-5">
+          <div className="flex items-center gap-2.5">
+            <LogoMark className="w-5 h-5 text-accent" />
+            <span className="text-slate-100 font-semibold text-sm tracking-tight">EquiTie</span>
+            <span className="w-px h-4 bg-base-border" />
+            <span className="text-slate-600 text-xs">Investor Portal</span>
+          </div>
+        </div>
+
+        {/* Right controls */}
+        <div className="flex items-center gap-3">
+          {hasFallbackMode && (
+            <div className="flex items-center gap-1.5 text-amber-500/80 text-[11px] bg-amber-950/30 border border-amber-900/40 px-2.5 py-1 rounded-md">
+              <AlertTriangle className="w-3 h-3" />
+              Demo mode
+            </div>
+          )}
+
+          {isDev && (
+            <button
+              onClick={() => setShowDebug((d) => !d)}
+              className={clsx(
+                "flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono border transition-colors",
+                showDebug
+                  ? "bg-violet-950/50 border-violet-700/60 text-violet-300"
+                  : "border-base-border text-slate-700 hover:border-violet-800/50 hover:text-violet-500"
+              )}
+            >
+              {"{/}"}
+            </button>
+          )}
+
+          <span className="text-[11px] text-slate-700 tabular-nums">25 Jun 2026</span>
 
           {/* Investor selector */}
           <div className="relative">
             <button
               onClick={() => setSelectorOpen((o) => !o)}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-base-border hover:border-accent/40 hover:bg-base-elevated transition-all text-sm"
+              className="flex items-center gap-2 pl-2 pr-2.5 py-1.5 rounded-lg border border-base-border hover:border-base-border-strong hover:bg-base-elevated transition-all text-sm"
             >
-              <div className="w-6 h-6 rounded-full bg-accent/20 border border-accent/30 flex items-center justify-center">
-                <span className="text-accent text-xs font-semibold">
+              <div className="w-5 h-5 rounded-full bg-accent/20 flex items-center justify-center flex-none">
+                <span className="text-accent text-[10px] font-semibold">
                   {currentInvestor?.name.charAt(0) ?? "?"}
                 </span>
               </div>
-              <span className="text-slate-200 font-medium">{currentInvestor?.name ?? "Select investor"}</span>
-              <span className="text-slate-500 text-xs">{currentInvestor?.reportingCurrency}</span>
-              <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+              <span className="text-slate-300 text-xs font-medium max-w-[140px] truncate">
+                {currentInvestor?.name ?? "Select investor"}
+              </span>
+              <ChevronDown className="w-3 h-3 text-slate-600 flex-none" />
             </button>
 
             {selectorOpen && (
-              <div className="absolute top-full left-0 mt-1 w-72 card border-base-border-strong shadow-xl z-50 max-h-64 overflow-y-auto">
-                <div className="p-2">
-                  <div className="text-xs text-slate-500 px-2 py-1 mb-1">Switch investor (demo)</div>
+              <div className="absolute top-full right-0 mt-1.5 w-64 bg-base-elevated border border-base-border-strong rounded-xl shadow-xl z-50 overflow-hidden animate-fade-in">
+                <div className="px-3 pt-3 pb-1">
+                  <p className="text-[10px] uppercase tracking-widest text-slate-600 mb-2">Switch investor</p>
+                </div>
+                <div className="px-2 pb-2">
                   {investors.map((inv) => (
                     <button
                       key={inv.id}
-                      onClick={() => {
-                        setSelectedInvestorId(inv.id);
-                        setSelectorOpen(false);
-                      }}
+                      onClick={() => { setSelectedInvestorId(inv.id); setSelectorOpen(false); }}
                       className={clsx(
-                        "w-full flex items-center gap-2 px-2 py-2 rounded-lg text-left text-sm transition-colors",
+                        "w-full flex items-center justify-between px-3 py-2 rounded-lg text-left text-xs transition-colors",
                         inv.id === selectedInvestorId
-                          ? "bg-accent/10 text-accent"
-                          : "text-slate-300 hover:bg-base-elevated"
+                          ? "bg-accent-subtle text-accent border border-accent/20"
+                          : "text-slate-400 hover:bg-base-surface hover:text-slate-200"
                       )}
                     >
                       <span className="font-medium truncate">{inv.name}</span>
-                      <span className="text-slate-500 text-xs ml-auto flex-none">{inv.reportingCurrency}</span>
+                      <span className="text-slate-600 text-[10px] ml-2 flex-none">{inv.reportingCurrency}</span>
                     </button>
                   ))}
                 </div>
@@ -525,120 +540,97 @@ export default function InvestorPortal({
             )}
           </div>
         </div>
-
-        <div className="flex items-center gap-3">
-          {hasFallbackMode && (
-            <div className="flex items-center gap-1.5 text-amber-400 text-xs bg-amber-950/50 border border-amber-900/50 px-2.5 py-1 rounded-lg">
-              <AlertTriangle className="w-3.5 h-3.5" />
-              Demo mode — connect API key for AI phrasing
-            </div>
-          )}
-          {isDev && (
-            <button
-              onClick={() => setShowDebug((d) => !d)}
-              title="Toggle router debug panel"
-              className={clsx(
-                "flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono border transition-colors",
-                showDebug
-                  ? "bg-violet-950 border-violet-700 text-violet-300"
-                  : "border-base-border text-slate-600 hover:border-violet-800 hover:text-violet-400"
-              )}
-            >
-              <span>{"</>"}</span>
-              <span>debug</span>
-            </button>
-          )}
-          <div className="text-xs text-slate-600">Report date: 25 Jun 2026</div>
-        </div>
       </header>
 
-      {/* ── Body ─────────────────────────────────────────────────────────────── */}
+      {/* ── Body ──────────────────────────────────────────────────────────────── */}
       <div className="flex-1 flex overflow-hidden">
 
-        {/* ── Sidebar ────────────────────────────────────────────────────────── */}
-        <aside className="flex-none w-64 border-r border-base-border flex flex-col overflow-hidden bg-base-surface">
+        {/* ── Sidebar ───────────────────────────────────────────────────────── */}
+        <aside className="flex-none w-72 border-r border-base-border flex flex-col overflow-hidden bg-base-surface">
           {snapshotLoading ? (
-            <div className="flex-1 flex items-center justify-center">
-              <Loader2 className="w-5 h-5 text-slate-600 animate-spin" />
-            </div>
+            <SidebarSkeleton />
           ) : !snapshot ? (
-            <div className="flex-1 flex items-center justify-center p-4">
-              <p className="text-slate-600 text-sm text-center">Failed to load investor data</p>
+            <div className="flex-1 flex items-center justify-center p-6">
+              <div className="text-center">
+                <AlertTriangle className="w-5 h-5 text-slate-600 mx-auto mb-2" />
+                <p className="text-slate-600 text-xs">Failed to load investor data</p>
+              </div>
             </div>
           ) : (
             <>
-              {/* Investor identity */}
-              <div className="p-4 border-b border-base-border">
-                <div className="flex items-start justify-between mb-3">
-                  <div className="w-10 h-10 rounded-full bg-accent/15 border border-accent/25 flex items-center justify-center">
-                    <span className="text-accent font-semibold">
+              {/* Identity block */}
+              <div className="px-5 pt-5 pb-4 border-b border-base-border">
+                <div className="flex items-start justify-between mb-4">
+                  <div className="w-11 h-11 rounded-full bg-base-elevated border border-base-border flex items-center justify-center">
+                    <span className="font-display text-accent text-lg leading-none">
                       {snapshot.investor.name.charAt(0)}
                     </span>
                   </div>
-                  {snapshot.investor.kycStatus === "Verified" ? (
-                    <Shield className="w-4 h-4 text-emerald-400 mt-1" />
-                  ) : (
-                    <ShieldAlert className="w-4 h-4 text-amber-400 mt-1" />
-                  )}
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    {snapshot.investor.kycStatus === "Verified" ? (
+                      <div className="flex items-center gap-1 text-emerald-500 text-[10px]">
+                        <Shield className="w-3 h-3" />
+                        <span>KYC Verified</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1 text-amber-500 text-[10px]">
+                        <ShieldAlert className="w-3 h-3" />
+                        <span>KYC Pending</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div className="text-slate-100 font-semibold text-sm leading-tight">
+
+                <div className="font-display text-slate-100 text-base leading-tight mb-1">
                   {snapshot.investor.name}
                 </div>
-                <div className="text-slate-500 text-xs mt-0.5">
+                <div className="text-slate-500 text-xs">
                   {snapshot.investor.type} · {snapshot.investor.country}
                 </div>
-                <div className="flex items-center gap-2 mt-2">
-                  <StatusBadge status={snapshot.investor.kycStatus} />
-                  <span className="text-slate-600 text-xs">{snapshot.investor.reportingCurrency}</span>
-                </div>
+                <div className="text-[10px] text-slate-700 mt-1">{snapshot.investor.reportingCurrency} reporting</div>
               </div>
 
-              {/* Portfolio stats */}
-              <div className="p-4 border-b border-base-border space-y-3">
-                <div className="text-xs text-slate-500 uppercase tracking-wider font-medium mb-2">Portfolio</div>
+              {/* Portfolio KPIs */}
+              <div className="px-5 pt-4 pb-4 border-b border-base-border">
+                <p className="card-section-label">Portfolio</p>
 
-                <div>
-                  <div className="text-xs text-slate-500 mb-0.5">Total Value</div>
-                  <div className="text-slate-100 font-semibold tabular-nums">
+                <div className="mb-4">
+                  <div className="font-display text-slate-100 tabular-nums leading-none" style={{ fontSize: "1.5rem" }}>
                     {snapshot.snapshot.totalValue}
                   </div>
+                  <div className="text-[10px] text-slate-600 mt-1">total value</div>
                 </div>
 
-                <div className="flex gap-4">
+                <div className="grid grid-cols-2 gap-3 mb-3">
                   <div>
-                    <div className="text-xs text-slate-500 mb-0.5">Contributed</div>
-                    <div className="text-slate-300 text-sm tabular-nums">
-                      {snapshot.snapshot.totalContributed}
-                    </div>
+                    <div className="text-[10px] text-slate-600 uppercase tracking-wider mb-0.5">Contributed</div>
+                    <div className="text-sm text-slate-300 tabular-nums font-medium">{snapshot.snapshot.totalContributed}</div>
                   </div>
                   <div>
-                    <div className="text-xs text-slate-500 mb-0.5">MOIC</div>
+                    <div className="text-[10px] text-slate-600 uppercase tracking-wider mb-0.5">Portfolio MOIC</div>
                     <MoicBadge moic={snapshot.snapshot.portfolioMoicRaw} />
                   </div>
                 </div>
 
-                <div className="flex gap-4">
+                <div className="grid grid-cols-2 gap-3 mb-3">
                   <div>
-                    <div className="text-xs text-slate-500 mb-0.5">Active</div>
-                    <div className="text-slate-300 text-sm">{snapshot.snapshot.activePositions}</div>
+                    <div className="text-[10px] text-slate-600 uppercase tracking-wider mb-0.5">Active</div>
+                    <div className="text-sm text-slate-300 font-medium">{snapshot.snapshot.activePositions}</div>
                   </div>
                   {snapshot.snapshot.pendingPositions > 0 && (
                     <div>
-                      <div className="text-xs text-slate-500 mb-0.5">Pending</div>
-                      <div className="text-amber-400 text-sm">{snapshot.snapshot.pendingPositions}</div>
+                      <div className="text-[10px] text-slate-600 uppercase tracking-wider mb-0.5">Pending</div>
+                      <div className="text-sm text-amber-500 font-medium">{snapshot.snapshot.pendingPositions}</div>
                     </div>
                   )}
                 </div>
 
                 {snapshot.snapshot.topSectors.length > 0 && (
                   <div>
-                    <div className="text-xs text-slate-500 mb-1">Top sectors</div>
+                    <div className="text-[10px] text-slate-600 uppercase tracking-wider mb-1.5">Sectors</div>
                     <div className="flex flex-wrap gap-1">
                       {snapshot.snapshot.topSectors.map((s) => (
-                        <span
-                          key={s}
-                          className="text-xs px-1.5 py-0.5 rounded bg-base-elevated text-slate-400 border border-base-border"
-                        >
+                        <span key={s} className="text-[10px] px-2 py-0.5 rounded-sm bg-base-elevated text-slate-500 border border-base-border">
                           {s}
                         </span>
                       ))}
@@ -647,39 +639,38 @@ export default function InvestorPortal({
                 )}
 
                 {snapshot.snapshot.hasOverdueObligations && (
-                  <div className="flex items-center gap-1.5 text-red-400 text-xs bg-red-950/30 border border-red-900/40 rounded-lg px-2.5 py-2">
-                    <AlertTriangle className="w-3.5 h-3.5 flex-none" />
-                    Overdue obligations
-                  </div>
+                  <button
+                    onClick={() => handleSend("What are my upcoming and overdue obligations?")}
+                    className="mt-3 w-full flex items-center gap-2 text-red-400 text-[11px] bg-red-950/20 border border-red-900/30 rounded-lg px-3 py-2 hover:bg-red-950/40 transition-colors text-left"
+                  >
+                    <AlertTriangle className="w-3 h-3 flex-none" />
+                    Overdue obligations — view →
+                  </button>
                 )}
               </div>
 
-              {/* Holdings list */}
-              <div className="flex-1 overflow-y-auto p-4">
-                <div className="text-xs text-slate-500 uppercase tracking-wider font-medium mb-2">Holdings</div>
-                <div className="space-y-2">
+              {/* Holdings */}
+              <div className="flex-1 overflow-y-auto">
+                <div className="px-5 pt-4 pb-2">
+                  <p className="card-section-label">Holdings</p>
+                </div>
+                <div className="px-2 pb-4 space-y-0.5">
                   {snapshot.snapshot.holdings.map((h) => (
                     <button
                       key={h.allocationId}
                       onClick={() => handleSend(`Tell me about my position in ${h.company}`)}
-                      className="w-full text-left group"
+                      className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-base-elevated transition-all group"
                     >
-                      <div className="p-2.5 rounded-lg border border-transparent hover:border-base-border hover:bg-base-elevated transition-all">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <div className="text-slate-200 text-xs font-medium truncate group-hover:text-accent transition-colors">
-                              {h.company}
-                            </div>
-                            <div className="text-slate-600 text-xs">{h.round}</div>
-                          </div>
-                          <MoicBadge moic={h.moic} />
-                        </div>
-                        <div className="flex items-center gap-1 mt-1.5">
-                          <StatusBadge status={h.dealStatus} />
-                          {h.allocationStatus === "Pending" && (
-                            <StatusBadge status="Pending" />
-                          )}
-                        </div>
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <span className="text-slate-300 text-xs font-medium truncate group-hover:text-slate-100 transition-colors">
+                          {h.company}
+                        </span>
+                        <MoicBadge moic={h.moic} />
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] text-slate-600">{h.round}</span>
+                        <span className="text-slate-800">·</span>
+                        <StatusBadge status={h.dealStatus} />
                       </div>
                     </button>
                   ))}
@@ -689,10 +680,11 @@ export default function InvestorPortal({
           )}
         </aside>
 
-        {/* ── Chat ──────────────────────────────────────────────────────────── */}
-        <main className="flex-1 flex flex-col overflow-hidden">
+        {/* ── Main chat ─────────────────────────────────────────────────────── */}
+        <main className="flex-1 flex flex-col overflow-hidden bg-base">
+
           {/* Messages */}
-          <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
+          <div className="flex-1 overflow-y-auto py-6 space-y-3">
             {messages.length === 0 && !snapshotLoading && snapshot && (
               <EmptyState
                 investorName={snapshot.investor.name}
@@ -715,35 +707,34 @@ export default function InvestorPortal({
             ))}
 
             {isThinking && <ThinkingIndicator />}
-
             <div ref={chatEndRef} />
           </div>
 
-          {/* Input */}
-          <div className="flex-none border-t border-base-border bg-base-surface p-4">
-            <div className="flex items-end gap-3 max-w-3xl mx-auto">
+          {/* Input composer */}
+          <div className="flex-none border-t border-base-border bg-base-surface px-6 py-4">
+            <div className="flex items-end gap-3 max-w-4xl mx-auto">
               <div className="flex-1 relative">
                 <textarea
                   ref={inputRef}
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  placeholder="Ask about your portfolio, a specific position, fees, obligations…"
+                  placeholder="Ask about your portfolio, a position, fees, obligations, or distributions…"
                   rows={1}
-                  className="w-full bg-base-elevated border border-base-border rounded-xl px-4 py-3 text-slate-200 text-sm placeholder-slate-600 resize-none focus:outline-none focus:border-accent/50 focus:bg-base-elevated/80 transition-all pr-12"
+                  disabled={isThinking}
+                  className="w-full bg-base-elevated border border-base-border rounded-xl px-4 py-3 text-slate-200 text-sm placeholder-slate-700 resize-none focus:outline-none focus:border-base-border-strong focus:bg-base-elevated transition-all"
                   style={{ minHeight: "48px", maxHeight: "120px" }}
                   onInput={(e) => {
-                    const target = e.target as HTMLTextAreaElement;
-                    target.style.height = "auto";
-                    target.style.height = Math.min(target.scrollHeight, 120) + "px";
+                    const t = e.target as HTMLTextAreaElement;
+                    t.style.height = "auto";
+                    t.style.height = Math.min(t.scrollHeight, 120) + "px";
                   }}
-                  disabled={isThinking}
                 />
               </div>
               <button
                 onClick={() => handleSend()}
                 disabled={!input.trim() || isThinking}
-                className="flex-none w-10 h-10 rounded-xl bg-accent disabled:bg-accent/30 flex items-center justify-center transition-all hover:bg-accent-dim"
+                className="flex-none w-10 h-10 rounded-xl bg-accent disabled:bg-base-elevated disabled:border disabled:border-base-border flex items-center justify-center transition-all hover:bg-accent-dim"
               >
                 {isThinking ? (
                   <Loader2 className="w-4 h-4 text-slate-950 animate-spin" />
@@ -752,49 +743,50 @@ export default function InvestorPortal({
                 )}
               </button>
             </div>
-            <div className="text-center mt-2 text-xs text-slate-700">
+            <p className="text-center mt-2 text-[10px] text-slate-700">
               EquiTie AI · Data as of 25 Jun 2026 · Not investment advice
-            </div>
+            </p>
           </div>
         </main>
 
-        {/* ── Evidence panel ─────────────────────────────────────────────────── */}
+        {/* ── Evidence panel ────────────────────────────────────────────────── */}
         {evidencePanelOpen && (
-          <aside className="flex-none w-72 border-l border-base-border flex flex-col overflow-hidden bg-base-surface animate-fade-in">
+          <aside className="flex-none w-80 border-l border-base-border flex flex-col overflow-hidden bg-base-surface animate-slide-in-right">
             <div className="flex-none flex items-center justify-between px-4 py-3 border-b border-base-border">
               <div className="flex items-center gap-2">
-                <BookOpen className="w-4 h-4 text-accent" />
-                <span className="text-sm font-medium text-slate-200">Sources</span>
-                <span className="text-xs text-slate-600 bg-base-elevated px-1.5 py-0.5 rounded">
-                  {activeEvidence.length}
+                <BookOpen className="w-3.5 h-3.5 text-slate-500" />
+                <span className="text-xs font-semibold text-slate-300">Source data</span>
+                <span className="text-[10px] text-slate-600 bg-base-elevated px-1.5 py-0.5 rounded border border-base-border tabular-nums">
+                  {activeEvidence.length} records
                 </span>
               </div>
               <button
                 onClick={() => setEvidencePanelOpen(false)}
-                className="btn-ghost p-1 rounded-md"
+                className="w-6 h-6 flex items-center justify-center rounded-md text-slate-600 hover:text-slate-300 hover:bg-base-elevated transition-colors"
               >
-                <X className="w-4 h-4" />
+                <X className="w-3.5 h-3.5" />
               </button>
             </div>
+
             <div className="flex-1 overflow-y-auto p-3 space-y-2">
               {activeEvidence.map((ev, idx) => (
                 <div
                   key={`${ev.id}-${idx}`}
                   className="p-3 rounded-lg border border-base-border bg-base-elevated hover:border-base-border-strong transition-colors"
                 >
-                  <div className="flex items-start justify-between gap-2 mb-1.5">
+                  <div className="flex items-start justify-between gap-2 mb-2">
                     <SourceTypePill type={ev.sourceType} />
-                    <span className="text-slate-600 text-xs font-mono">{ev.id}</span>
+                    <span className="text-slate-700 text-[10px] font-mono">{ev.id}</span>
                   </div>
-                  <div className="text-slate-300 text-xs font-medium mb-1">{ev.label}</div>
-                  <div className="text-slate-500 text-xs leading-relaxed">{ev.detail}</div>
+                  <div className="text-slate-300 text-[11px] font-medium mb-1 leading-snug">{ev.label}</div>
+                  <div className="text-slate-500 text-[11px] leading-relaxed">{ev.detail}</div>
                   {ev.amount !== undefined && ev.currency && (
-                    <div className="mt-1.5 text-accent text-xs font-semibold tabular-nums">
+                    <div className="mt-2 text-accent text-xs font-semibold tabular-nums">
                       {ev.currency} {ev.amount.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                     </div>
                   )}
                   {ev.date && (
-                    <div className="text-slate-600 text-xs mt-0.5">{ev.date}</div>
+                    <div className="text-slate-700 text-[10px] mt-0.5 tabular-nums">{ev.date}</div>
                   )}
                 </div>
               ))}
@@ -806,7 +798,33 @@ export default function InvestorPortal({
   );
 }
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
+// ─── Sidebar skeleton ─────────────────────────────────────────────────────────
+
+function SidebarSkeleton() {
+  return (
+    <div className="p-5 space-y-4 animate-pulse">
+      <div className="flex items-center gap-3">
+        <div className="w-11 h-11 rounded-full bg-base-elevated" />
+        <div className="flex-1 space-y-1.5">
+          <div className="h-3 bg-base-elevated rounded w-3/4" />
+          <div className="h-2.5 bg-base-elevated rounded w-1/2" />
+        </div>
+      </div>
+      <div className="space-y-2 pt-2">
+        <div className="h-7 bg-base-elevated rounded w-2/3" />
+        <div className="grid grid-cols-2 gap-2">
+          <div className="h-8 bg-base-elevated rounded" />
+          <div className="h-8 bg-base-elevated rounded" />
+        </div>
+      </div>
+      {[...Array(5)].map((_, i) => (
+        <div key={i} className="h-10 bg-base-elevated rounded-lg" />
+      ))}
+    </div>
+  );
+}
+
+// ─── Empty state ──────────────────────────────────────────────────────────────
 
 function EmptyState({
   investorName,
@@ -817,32 +835,39 @@ function EmptyState({
   starterPrompts: string[];
   onPrompt: (text: string) => void;
 }) {
-  return (
-    <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
-      <div className="w-14 h-14 rounded-2xl bg-accent/15 border border-accent/25 flex items-center justify-center mb-5">
-        <Sparkles className="w-7 h-7 text-accent" />
-      </div>
-      <h2 className="text-slate-100 text-xl font-semibold mb-2">
-        Hello, {investorName.split(" ")[0]}
-      </h2>
-      <p className="text-slate-500 text-sm max-w-sm mb-8 leading-relaxed">
-        Ask me anything about your portfolio — current value, fees, upcoming obligations, distributions, or the story behind any position.
-      </p>
+  const firstName = investorName.split(" ")[0];
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full max-w-xl">
+  return (
+    <div className="flex flex-col justify-center min-h-[60vh] px-8 max-w-4xl mx-auto w-full">
+      <div className="mb-8">
+        <p className="text-[10px] uppercase tracking-widest text-slate-700 mb-3 font-medium">
+          EquiTie Investor Assistant
+        </p>
+        <h1 className="font-display text-3xl text-slate-100 leading-tight mb-3">
+          {greeting}, {firstName}.
+        </h1>
+        <p className="text-slate-500 text-sm leading-relaxed max-w-md">
+          Ask me anything about your portfolio — current value, positions, fees, upcoming obligations, or the story behind any investment.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-2xl">
         {starterPrompts.map((prompt) => (
           <button
             key={prompt}
             onClick={() => onPrompt(prompt)}
-            className="text-left px-4 py-3 rounded-xl border border-base-border bg-base-surface hover:border-accent/30 hover:bg-base-elevated transition-all group"
+            className="group text-left p-4 rounded-xl border border-base-border bg-base-surface hover:border-base-border-strong hover:bg-base-elevated transition-all"
           >
-            <div className="flex items-start gap-2.5">
-              <div className="w-5 h-5 rounded-md bg-accent/10 flex items-center justify-center flex-none mt-0.5">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-2.5">
                 <PromptIcon prompt={prompt} />
+                <span className="text-slate-400 text-sm group-hover:text-slate-200 transition-colors leading-snug">
+                  {prompt}
+                </span>
               </div>
-              <span className="text-slate-300 text-sm group-hover:text-slate-100 transition-colors leading-snug">
-                {prompt}
-              </span>
+              <ArrowUpRight className="w-3.5 h-3.5 text-slate-700 group-hover:text-accent transition-colors flex-none mt-0.5" />
             </div>
           </button>
         ))}
@@ -853,12 +878,15 @@ function EmptyState({
 
 function PromptIcon({ prompt }: { prompt: string }) {
   const lower = prompt.toLowerCase();
-  if (/overview|portfolio/.test(lower)) return <LayoutGrid className="w-3 h-3 text-accent" />;
-  if (/statement|account/.test(lower)) return <FileText className="w-3 h-3 text-accent" />;
-  if (/obligation|fee|call/.test(lower)) return <AlertTriangle className="w-3 h-3 text-amber-400" />;
-  if (/distribut|exit/.test(lower)) return <TrendingUp className="w-3 h-3 text-emerald-400" />;
-  return <Sparkles className="w-3 h-3 text-accent" />;
+  const cls = "w-4 h-4 flex-none mt-0.5";
+  if (/overview|portfolio/.test(lower)) return <LayoutGrid className={clsx(cls, "text-slate-500")} />;
+  if (/statement|account/.test(lower)) return <FileText className={clsx(cls, "text-slate-500")} />;
+  if (/obligation|fee|call/.test(lower)) return <AlertTriangle className={clsx(cls, "text-amber-600")} />;
+  if (/distribut|exit/.test(lower)) return <TrendingUp className={clsx(cls, "text-emerald-600")} />;
+  return <Activity className={clsx(cls, "text-slate-500")} />;
 }
+
+// ─── Message bubble / response card ───────────────────────────────────────────
 
 function MessageBubble({
   message,
@@ -875,151 +903,176 @@ function MessageBubble({
   const hasEvidence = !isUser && (message.evidence?.length ?? 0) > 0;
   const ao = message.answerObject;
 
+  // ── User message ──────────────────────────────────────────────────────────
   if (isUser) {
     return (
-      <div className="flex justify-end">
-        <div className="max-w-[70%] px-4 py-2.5 rounded-2xl rounded-tr-sm bg-accent/20 border border-accent/25 text-slate-200 text-sm">
+      <div className="flex justify-end px-6">
+        <div className="max-w-[65%] px-4 py-2.5 bg-base-elevated border border-base-border rounded-2xl rounded-tr-sm text-slate-300 text-sm leading-relaxed">
           {message.content}
         </div>
       </div>
     );
   }
 
-  return (
-    <div className="flex flex-col gap-2 max-w-3xl animate-slide-up">
-      <div className="flex items-start gap-3">
-        <div className="flex-none w-7 h-7 rounded-lg bg-accent/15 border border-accent/25 flex items-center justify-center mt-0.5">
-          <span className="text-accent font-bold text-xs">E</span>
+  // ── Error state ───────────────────────────────────────────────────────────
+  if (message.error) {
+    return (
+      <div className="px-6">
+        <div className="max-w-4xl mx-auto rounded-xl border border-red-900/40 bg-red-950/15 p-4 flex items-start gap-3">
+          <AlertTriangle className="w-4 h-4 text-red-500 flex-none mt-0.5" />
+          <p className="text-red-300 text-sm leading-relaxed">{message.content}</p>
         </div>
-        <div className="flex-1 min-w-0">
+      </div>
+    );
+  }
+
+  const intentLabel = message.intent ? INTENT_LABELS[message.intent] ?? message.intent : "Response";
+
+  // ── Response card ─────────────────────────────────────────────────────────
+  return (
+    <div className="px-6 animate-slide-up">
+      <div className="max-w-4xl mx-auto response-card">
+
+        {/* Card header — intent label */}
+        <div className="response-card-header">
+          <div className="flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-accent flex-none" />
+            <span className="text-[10px] uppercase tracking-widest text-slate-500 font-medium">
+              {intentLabel}
+            </span>
+            {message.fallbackMode && (
+              <span className="text-[10px] text-amber-600/80 border border-amber-900/30 bg-amber-950/20 px-1.5 py-0.5 rounded">
+                demo mode
+              </span>
+            )}
+          </div>
+          <span className="text-[10px] text-slate-700">EquiTie AI</span>
+        </div>
+
+        {/* Card body */}
+        <div className="response-card-body">
 
           {/* Title */}
           {ao?.title && (
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">{ao.title}</p>
+            <h3 className="text-slate-100 font-semibold text-base mb-3">{ao.title}</h3>
           )}
 
-          {/* Concise answer highlight */}
+          {/* Concise answer — lead */}
           {ao?.conciseAnswer && (
-            <div className="mb-3 px-3 py-2 rounded-lg border border-accent/20 bg-accent/5 text-sm text-slate-200 font-medium">
+            <p className="text-slate-300 text-sm leading-relaxed font-medium mb-4 pb-4 border-b border-base-border">
               {ao.conciseAnswer}
-            </div>
+            </p>
           )}
 
-          {/* Key metrics chips */}
+          {/* Key metrics — financial KPI grid */}
           {ao && ao.keyMetrics.length > 0 && (
-            <div className="flex flex-wrap gap-2 mb-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4 mb-5 pb-5 border-b border-base-border">
               {ao.keyMetrics.map((m, i) => (
-                <div
-                  key={i}
-                  className={clsx(
-                    "flex flex-col px-3 py-1.5 rounded-lg border text-xs",
-                    m.sentiment === "positive" && "border-emerald-800 bg-emerald-950/60 text-emerald-300",
-                    m.sentiment === "negative" && "border-red-800 bg-red-950/60 text-red-300",
-                    m.sentiment === "warning" && "border-amber-800 bg-amber-950/60 text-amber-300",
-                    (!m.sentiment || m.sentiment === "neutral") && "border-slate-700 bg-slate-800/60 text-slate-300"
-                  )}
-                >
-                  <span className="font-semibold tabular-nums">{m.value}</span>
-                  <span className="text-[10px] opacity-70 mt-0.5">{m.label}{m.subtext ? ` · ${m.subtext}` : ""}</span>
+                <div key={i} className="kpi-cell">
+                  <span className={clsx(
+                    "kpi-value",
+                    m.sentiment === "positive" && "text-emerald-400",
+                    m.sentiment === "negative" && "text-red-400",
+                    m.sentiment === "warning" && "text-amber-400",
+                    (!m.sentiment || m.sentiment === "neutral") && "text-slate-100",
+                  )}>
+                    {m.value}
+                  </span>
+                  <span className="kpi-label">{m.label}</span>
+                  {m.subtext && <span className="kpi-sub">{m.subtext}</span>}
                 </div>
               ))}
             </div>
           )}
 
-          {/* Detailed narrative (prose) */}
+          {/* Detailed narrative */}
           <div
-            className={clsx(
-              "prose-dark text-sm leading-relaxed",
-              message.error && "text-red-400"
-            )}
+            className="prose-dark text-sm"
             dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }}
           />
 
-          {message.feeCard && (
-            <FeeBreakdownCard feeCard={message.feeCard} />
-          )}
+          {/* Structured cards */}
+          {message.feeCard && <FeeBreakdownCard feeCard={message.feeCard} />}
+          {message.valuationCard && <ValuationTimelineCard card={message.valuationCard} />}
 
-          {message.valuationCard && (
-            <ValuationTimelineCard card={message.valuationCard} />
-          )}
+        </div>
 
-          {/* Glossary terms */}
-          {ao && ao.glossaryTerms.length > 0 && (
-            <AnswerGlossary terms={ao.glossaryTerms} />
-          )}
+        {/* Collapsible detail sections */}
+        {ao && ao.glossaryTerms.length > 0 && <AnswerGlossary terms={ao.glossaryTerms} />}
+        {ao && ao.caveats.length > 0 && <AnswerCaveats caveats={ao.caveats} />}
+        {ao?.calculationNote && <AnswerCalculationNote note={ao.calculationNote} />}
 
-          {/* Caveats */}
-          {ao && ao.caveats.length > 0 && (
-            <AnswerCaveats caveats={ao.caveats} />
-          )}
+        {/* Debug panel */}
+        {showDebug && message.routerDebug && <QueryDebugPanel debug={message.routerDebug} />}
 
-          {/* Calculation note */}
-          {ao?.calculationNote && (
-            <AnswerCalculationNote note={ao.calculationNote} />
-          )}
-
-          {showDebug && message.routerDebug && (
-            <QueryDebugPanel debug={message.routerDebug} />
-          )}
-
-          {hasEvidence && (
-            <button
-              onClick={() => onViewSources(message.evidence!)}
-              className="mt-3 flex items-center gap-1.5 text-xs text-slate-500 hover:text-accent transition-colors"
-            >
-              <BookOpen className="w-3.5 h-3.5" />
-              {message.evidence!.length} source{message.evidence!.length !== 1 ? "s" : ""}
-              {message.fallbackMode && (
-                <span className="ml-2 text-amber-500/70">(demo mode)</span>
-              )}
-            </button>
-          )}
-
-          {/* Follow-up questions */}
-          {ao && ao.followUpQuestions.length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {ao.followUpQuestions.map((q, i) => (
-                <button
-                  key={i}
-                  onClick={() => onSend(q)}
-                  className="text-xs px-2.5 py-1 rounded-full border border-slate-700 bg-slate-800/50 text-slate-400 hover:border-accent/50 hover:text-accent transition-colors"
-                >
+        {/* Card footer — follow-ups + sources */}
+        {(ao?.followUpQuestions?.length || hasEvidence) && (
+          <div className="response-card-footer">
+            <div className="flex flex-wrap gap-1.5 flex-1 min-w-0">
+              {ao?.followUpQuestions?.map((q, i) => (
+                <button key={i} onClick={() => onSend(q)} className="followup-chip">
                   {q}
                 </button>
               ))}
             </div>
-          )}
+            {hasEvidence && (
+              <button
+                onClick={() => onViewSources(message.evidence!)}
+                className="flex items-center gap-1.5 text-[11px] text-slate-500 hover:text-slate-300 transition-colors flex-none whitespace-nowrap"
+              >
+                <BookOpen className="w-3 h-3" />
+                {message.evidence!.length} sources
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Thinking indicator ───────────────────────────────────────────────────────
+
+function ThinkingIndicator() {
+  return (
+    <div className="px-6">
+      <div className="max-w-4xl mx-auto rounded-xl border border-base-border bg-base-elevated px-5 py-4">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1">
+            <div className="w-1.5 h-1.5 rounded-full bg-accent/60 loading-dot" />
+            <div className="w-1.5 h-1.5 rounded-full bg-accent/60 loading-dot" />
+            <div className="w-1.5 h-1.5 rounded-full bg-accent/60 loading-dot" />
+          </div>
+          <span className="text-slate-600 text-xs">Analysing your portfolio data…</span>
         </div>
       </div>
     </div>
   );
 }
 
-// ─── Answer object sub-components ─────────────────────────────────────────────
+// ─── Answer detail sections ───────────────────────────────────────────────────
 
 function AnswerGlossary({ terms }: { terms: GlossaryEntryData[] }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="mt-3 rounded-lg border border-slate-800 bg-slate-900/50 overflow-hidden">
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between px-3 py-2 text-xs text-slate-400 hover:text-slate-300 transition-colors"
-      >
-        <span className="flex items-center gap-1.5">
-          <BookOpen className="w-3.5 h-3.5" />
-          Glossary ({terms.length} term{terms.length !== 1 ? "s" : ""})
+    <div className="border-t border-base-border">
+      <button onClick={() => setOpen((v) => !v)} className="disclosure-trigger">
+        <span className="flex items-center gap-2">
+          <BookOpen className="w-3 h-3" />
+          Glossary · {terms.length} term{terms.length !== 1 ? "s" : ""}
         </span>
-        <ChevronDown className={clsx("w-3.5 h-3.5 transition-transform", open && "rotate-180")} />
+        <ChevronDown className={clsx("w-3.5 h-3.5 transition-transform duration-150", open && "rotate-180")} />
       </button>
       {open && (
-        <div className="px-3 pb-3 space-y-2 border-t border-slate-800">
+        <div className="px-5 pb-4 space-y-3 border-t border-base-border">
           {terms.map((t, i) => (
-            <div key={i} className="pt-2">
-              <p className="text-xs font-semibold text-slate-300">
-                {t.term}{t.abbreviation && <span className="text-slate-500 font-normal ml-1">({t.abbreviation})</span>}
+            <div key={i} className="pt-3 first:pt-3">
+              <p className="text-xs font-semibold text-slate-200">
+                {t.term}
+                {t.abbreviation && <span className="text-slate-600 font-normal ml-2">({t.abbreviation})</span>}
               </p>
-              <p className="text-xs text-slate-400 mt-0.5">{t.shortDef}</p>
-              {t.formula && <p className="text-xs text-slate-500 mt-0.5 font-mono">{t.formula}</p>}
+              <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">{t.shortDef}</p>
+              {t.formula && <p className="text-[11px] text-slate-600 mt-0.5 font-mono">{t.formula}</p>}
             </div>
           ))}
         </div>
@@ -1031,22 +1084,19 @@ function AnswerGlossary({ terms }: { terms: GlossaryEntryData[] }) {
 function AnswerCaveats({ caveats }: { caveats: string[] }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="mt-2 rounded-lg border border-amber-900/50 bg-amber-950/20 overflow-hidden">
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between px-3 py-2 text-xs text-amber-500/70 hover:text-amber-400 transition-colors"
-      >
-        <span className="flex items-center gap-1.5">
-          <AlertTriangle className="w-3.5 h-3.5" />
+    <div className="border-t border-base-border">
+      <button onClick={() => setOpen((v) => !v)} className="disclosure-trigger text-amber-600/70 hover:text-amber-500">
+        <span className="flex items-center gap-2">
+          <AlertTriangle className="w-3 h-3" />
           {caveats.length} caveat{caveats.length !== 1 ? "s" : ""}
         </span>
-        <ChevronDown className={clsx("w-3.5 h-3.5 transition-transform", open && "rotate-180")} />
+        <ChevronDown className={clsx("w-3.5 h-3.5 transition-transform duration-150", open && "rotate-180")} />
       </button>
       {open && (
-        <ul className="px-3 pb-3 space-y-1 border-t border-amber-900/30">
+        <ul className="px-5 pb-4 space-y-1.5 border-t border-base-border pt-3">
           {caveats.map((c, i) => (
-            <li key={i} className="pt-1.5 text-xs text-amber-400/80 flex gap-1.5">
-              <span className="text-amber-600 mt-0.5">•</span>
+            <li key={i} className="flex gap-2 text-[11px] text-amber-400/70 leading-relaxed">
+              <span className="text-amber-700 flex-none mt-px">–</span>
               {c}
             </li>
           ))}
@@ -1059,19 +1109,16 @@ function AnswerCaveats({ caveats }: { caveats: string[] }) {
 function AnswerCalculationNote({ note }: { note: string }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="mt-2 rounded-lg border border-slate-800 bg-slate-900/30 overflow-hidden">
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between px-3 py-2 text-xs text-slate-500 hover:text-slate-400 transition-colors"
-      >
-        <span className="flex items-center gap-1.5">
-          <Info className="w-3.5 h-3.5" />
-          How this was calculated
+    <div className="border-t border-base-border">
+      <button onClick={() => setOpen((v) => !v)} className="disclosure-trigger">
+        <span className="flex items-center gap-2">
+          <Info className="w-3 h-3" />
+          Methodology
         </span>
-        <ChevronDown className={clsx("w-3.5 h-3.5 transition-transform", open && "rotate-180")} />
+        <ChevronDown className={clsx("w-3.5 h-3.5 transition-transform duration-150", open && "rotate-180")} />
       </button>
       {open && (
-        <p className="px-3 pb-3 pt-2 text-xs text-slate-500 border-t border-slate-800 leading-relaxed">
+        <p className="px-5 pb-4 pt-3 text-[11px] text-slate-500 leading-relaxed border-t border-base-border">
           {note}
         </p>
       )}
@@ -1079,37 +1126,22 @@ function AnswerCalculationNote({ note }: { note: string }) {
   );
 }
 
-// ─── Fee Breakdown Card ────────────────────────────────────────────────────────
+// ─── Fee Breakdown Card ───────────────────────────────────────────────────────
 
 function FeeBreakdownCard({ feeCard }: { feeCard: FeeCard }) {
   if (feeCard.deals.length === 0) return null;
-
   return (
-    <div className="mt-4 space-y-3">
-      {/* Summary strip */}
-      {(feeCard.totalPaid !== "0" || feeCard.totalUpcoming !== "0") && (
-        <div className="flex items-center gap-3 text-xs text-slate-400">
-          <span>
-            <span className="text-slate-500">Paid:</span>{" "}
-            <span className="text-slate-200 font-medium tabular-nums">{feeCard.totalPaid}</span>
-          </span>
-          <span className="text-slate-700">·</span>
-          <span>
-            <span className="text-slate-500">Upcoming:</span>{" "}
-            <span className="text-slate-200 font-medium tabular-nums">{feeCard.totalUpcoming}</span>
-          </span>
-          {feeCard.hasAnyDiscount && (
-            <>
-              <span className="text-slate-700">·</span>
-              <span className="flex items-center gap-1 text-emerald-400">
-                <Tag className="w-3 h-3" />
-                Negotiated discount applied
-              </span>
-            </>
-          )}
+    <div className="mt-5 space-y-3">
+      {feeCard.hasAnyDiscount && (
+        <div className="flex items-center gap-2 text-[11px]">
+          <Tag className="w-3 h-3 text-accent" />
+          <span className="text-accent font-medium">Negotiated discount applied to this investor</span>
+          <span className="text-slate-600">·</span>
+          <span className="text-slate-500">Paid: <span className="text-slate-300 tabular-nums">{feeCard.totalPaid}</span></span>
+          <span className="text-slate-600">·</span>
+          <span className="text-slate-500">Upcoming: <span className="text-slate-300 tabular-nums">{feeCard.totalUpcoming}</span></span>
         </div>
       )}
-
       {feeCard.deals.map((deal) => (
         <FeeCard key={`${deal.company}-${deal.round}`} deal={deal} reportingCurrency={feeCard.reportingCurrency} />
       ))}
@@ -1120,52 +1152,39 @@ function FeeBreakdownCard({ feeCard }: { feeCard: FeeCard }) {
 function FeeCard({ deal, reportingCurrency }: { deal: FeeCardDeal; reportingCurrency: string }) {
   const [expanded, setExpanded] = useState(false);
 
-  const statusCls = (s: string) =>
-    clsx("text-xs px-1.5 py-0.5 rounded font-medium", {
-      "bg-emerald-950 text-emerald-400 border border-emerald-900": s === "Paid",
-      "bg-amber-950 text-amber-400 border border-amber-900": s === "Upcoming",
-      "bg-red-950 text-red-400 border border-red-900": s === "Overdue",
-    });
+  const statusCls = (s: string) => clsx("text-[10px] px-1.5 py-0.5 rounded border font-medium", {
+    "bg-emerald-950/80 text-emerald-400 border-emerald-900/50": s === "Paid",
+    "bg-base-elevated text-slate-400 border-base-border": s === "Upcoming",
+    "bg-red-950/80 text-red-400 border-red-900/50": s === "Overdue",
+  });
 
   return (
     <div className="rounded-xl border border-base-border bg-base-elevated overflow-hidden">
-      {/* Card header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-base-border">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-base-border bg-base-surface">
         <div className="flex items-center gap-2">
-          <Tag className="w-3.5 h-3.5 text-orange-400 flex-none" />
           <span className="text-slate-200 text-sm font-medium">{deal.company}</span>
-          <span className="text-slate-500 text-xs">{deal.round}</span>
-          {deal.hasDiscount && (
-            <span className="text-xs px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-900/50">
-              Discounted
-            </span>
-          )}
+          <span className="text-slate-600 text-xs">{deal.round}</span>
+          {deal.hasDiscount && <span className="badge-discount">Discounted</span>}
         </div>
-        <div className="flex items-center gap-3 text-xs tabular-nums">
-          <span className="text-slate-500">
-            Paid <span className="text-slate-300">{deal.totalPaid}</span>
-          </span>
-          {deal.totalOverdue && (
-            <span className="text-red-400 font-medium">Overdue {deal.totalOverdue}</span>
-          )}
+        <div className="flex items-center gap-3 text-[11px] text-slate-500 tabular-nums">
+          <span>Paid <span className="text-slate-300">{deal.totalPaid}</span></span>
+          {deal.totalOverdue && <span className="text-red-400 font-medium">Overdue {deal.totalOverdue}</span>}
         </div>
       </div>
 
-      {/* Plain summary */}
       <div className="px-4 py-3 border-b border-base-border">
-        <p className="text-slate-400 text-xs leading-relaxed">{deal.plainSummary}</p>
+        <p className="text-slate-500 text-xs leading-relaxed">{deal.plainSummary}</p>
       </div>
 
       {deal.noFeesYet ? (
-        <div className="px-4 py-3 flex items-center gap-2 text-slate-500 text-xs">
-          <Info className="w-3.5 h-3.5 flex-none text-slate-600" />
-          No fee history yet. Fees will appear here once capital is deployed.
+        <div className="px-4 py-3 flex items-center gap-2 text-slate-600 text-xs">
+          <Info className="w-3.5 h-3.5 flex-none" />
+          No fee history yet — fees will appear once capital is deployed.
         </div>
       ) : (
         <>
-          {/* Fee schedule: standard vs effective */}
           <div className="px-4 py-3">
-            <div className="text-xs text-slate-500 font-medium mb-2 uppercase tracking-wide">Fee schedule</div>
+            <div className="card-section-label mb-2">Fee schedule</div>
             <div className="space-y-1.5">
               {deal.schedule.map((line) => (
                 <FeeScheduleRow key={line.feeType} line={line} reportingCurrency={reportingCurrency} />
@@ -1173,38 +1192,30 @@ function FeeCard({ deal, reportingCurrency }: { deal: FeeCardDeal; reportingCurr
             </div>
           </div>
 
-          {/* Performance fee note */}
           <div className="px-4 pb-3">
-            <div className="flex items-start gap-2 text-xs text-slate-500 bg-base-surface rounded-lg px-3 py-2">
-              <Info className="w-3 h-3 flex-none mt-0.5 text-slate-600" />
+            <div className="flex items-start gap-2 text-[11px] text-slate-600 bg-base-surface border border-base-border rounded-lg px-3 py-2">
+              <Info className="w-3 h-3 flex-none mt-0.5 text-slate-700" />
               <span className="leading-relaxed">{deal.performanceFeeNote}</span>
             </div>
           </div>
 
-          {/* Toggle for historical fee lines */}
           {deal.feeLines.length > 0 && (
             <div className="border-t border-base-border">
               <button
                 onClick={() => setExpanded((e) => !e)}
-                className="w-full flex items-center justify-between px-4 py-2.5 text-xs text-slate-500 hover:text-slate-300 hover:bg-base-surface/50 transition-colors"
+                className="disclosure-trigger"
               >
                 <span>{deal.feeLines.length} fee line{deal.feeLines.length !== 1 ? "s" : ""}</span>
-                <ChevronDown className={clsx("w-3.5 h-3.5 transition-transform", expanded && "rotate-180")} />
+                <ChevronDown className={clsx("w-3.5 h-3.5 transition-transform duration-150", expanded && "rotate-180")} />
               </button>
-
               {expanded && (
-                <div className="px-4 pb-3 space-y-1">
+                <div className="px-4 pb-3 border-t border-base-border">
                   {deal.feeLines.map((fl) => (
-                    <div
-                      key={fl.feeId}
-                      className="flex items-center justify-between text-xs py-1.5 border-b border-base-border last:border-0"
-                    >
+                    <div key={fl.feeId} className="flex items-center justify-between text-xs py-2 border-b border-base-border/50 last:border-0">
                       <div className="flex items-center gap-2 min-w-0">
                         <span className="text-slate-400 truncate">{fl.feeType}</span>
-                        <span className="text-slate-600">{fl.period}</span>
-                        {fl.hasDiscount && (
-                          <CheckCircle2 className="w-3 h-3 text-emerald-500 flex-none" />
-                        )}
+                        <span className="text-slate-700 text-[10px]">{fl.period}</span>
+                        {fl.hasDiscount && <CheckCircle2 className="w-3 h-3 text-emerald-600 flex-none" />}
                       </div>
                       <div className="flex items-center gap-2 flex-none ml-2">
                         <span className="text-slate-300 tabular-nums">{fl.amountRptDisplay}</span>
@@ -1239,8 +1250,7 @@ const INTENT_COLORS: Record<string, string> = {
 
 function ConfidenceBar({ value }: { value: number }) {
   const pct = Math.round(value * 100);
-  const color =
-    pct >= 85 ? "bg-emerald-500" : pct >= 60 ? "bg-amber-500" : "bg-red-500";
+  const color = pct >= 85 ? "bg-emerald-500" : pct >= 60 ? "bg-amber-500" : "bg-red-500";
   return (
     <div className="flex items-center gap-2">
       <div className="flex-1 h-1.5 bg-base-border rounded-full overflow-hidden">
@@ -1254,96 +1264,66 @@ function ConfidenceBar({ value }: { value: number }) {
 function QueryDebugPanel({ debug }: { debug: RouterDebugData }) {
   const [open, setOpen] = useState(false);
   const intentColor = INTENT_COLORS[debug.intent] ?? "bg-slate-800 text-slate-300 border-slate-700";
-
   return (
-    <div className="mt-3 rounded-lg border border-violet-900/50 bg-violet-950/20 overflow-hidden font-mono">
-      {/* Header row — always visible */}
+    <div className="border-t border-violet-900/40 bg-violet-950/10 font-mono">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="w-full flex items-center gap-2 px-3 py-2 text-[10px] text-left hover:bg-violet-950/30 transition-colors"
+        className="w-full flex items-center gap-2 px-4 py-2 text-[10px] text-left hover:bg-violet-950/20 transition-colors"
       >
-        <span className="text-violet-400">{"</>"}</span>
-        <span className="text-violet-300 font-semibold">Router Debug</span>
-        <span className={clsx("px-1.5 py-0.5 rounded border text-[10px]", intentColor)}>
-          {debug.intent}
-        </span>
-        <span className="text-slate-500 ml-1">
-          {Math.round(debug.confidence * 100)}% conf ·{" "}
-          {debug.evidenceCount} evidence
-        </span>
-        <ChevronDown
-          className={clsx("w-3 h-3 text-violet-500 ml-auto transition-transform", open && "rotate-180")}
-        />
+        <span className="text-violet-500">{"{/}"}</span>
+        <span className="text-violet-400 font-semibold">Router Debug</span>
+        <span className={clsx("px-1.5 py-0.5 rounded border text-[10px]", intentColor)}>{debug.intent}</span>
+        <span className="text-slate-600">{Math.round(debug.confidence * 100)}% · {debug.evidenceCount} ev</span>
+        <ChevronDown className={clsx("w-3 h-3 text-violet-600 ml-auto transition-transform", open && "rotate-180")} />
       </button>
-
       {open && (
-        <div className="border-t border-violet-900/40 px-3 py-2.5 space-y-2.5 text-[11px]">
-          {/* Confidence */}
+        <div className="border-t border-violet-900/30 px-4 py-3 space-y-2.5 text-[11px]">
           <div>
-            <div className="text-slate-500 mb-1">Confidence</div>
+            <div className="text-slate-600 mb-1">Confidence</div>
             <ConfidenceBar value={debug.confidence} />
           </div>
-
-          {/* Backend function */}
           <div>
-            <div className="text-slate-500 mb-0.5">Backend function</div>
+            <div className="text-slate-600 mb-0.5">Backend</div>
             <div className="text-violet-300">{debug.backendFunction}</div>
           </div>
-
-          {/* Matched keywords */}
           {debug.matchedKeywords.length > 0 && (
             <div>
-              <div className="text-slate-500 mb-1">Matched keywords</div>
+              <div className="text-slate-600 mb-1">Keywords</div>
               <div className="flex flex-wrap gap-1">
                 {debug.matchedKeywords.map((kw) => (
-                  <span
-                    key={kw}
-                    className="px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-300"
-                  >
-                    {kw}
-                  </span>
+                  <span key={kw} className="px-1.5 py-0.5 rounded bg-base-elevated border border-base-border text-slate-400">{kw}</span>
                 ))}
               </div>
             </div>
           )}
-
-          {/* Entities */}
           <div>
-            <div className="text-slate-500 mb-1">Entities</div>
-            <div className="space-y-0.5 pl-2 border-l border-slate-700">
+            <div className="text-slate-600 mb-1">Entities</div>
+            <div className="space-y-0.5 pl-2 border-l border-base-border">
               {Object.entries(debug.entities).map(([k, v]) => {
                 if (v === null || (Array.isArray(v) && v.length === 0)) return null;
                 return (
                   <div key={k} className="flex gap-2">
-                    <span className="text-slate-600 w-28 flex-none">{k}</span>
+                    <span className="text-slate-700 w-28 flex-none">{k}</span>
                     <span className="text-slate-300">
-                      {Array.isArray(v)
-                        ? v.join(", ")
-                        : typeof v === "object"
-                        ? JSON.stringify(v)
-                        : String(v)}
+                      {Array.isArray(v) ? v.join(", ") : typeof v === "object" ? JSON.stringify(v) : String(v)}
                     </span>
                   </div>
                 );
               })}
               {Object.values(debug.entities).every((v) => v === null) && (
-                <span className="text-slate-600 italic">no entities extracted</span>
+                <span className="text-slate-700 italic">no entities</span>
               )}
             </div>
           </div>
-
-          {/* Clarification prompt */}
           {debug.clarificationPrompt && (
             <div>
-              <div className="text-slate-500 mb-0.5">Clarification prompt</div>
-              <div className="text-amber-400 italic">"{debug.clarificationPrompt}"</div>
+              <div className="text-slate-600 mb-0.5">Clarification</div>
+              <div className="text-amber-400/80 italic">"{debug.clarificationPrompt}"</div>
             </div>
           )}
-
-          {/* Reasoning */}
           <div>
-            <div className="text-slate-500 mb-0.5">Reasoning</div>
-            <div className="text-slate-400 leading-relaxed">{debug.reasoning}</div>
+            <div className="text-slate-600 mb-0.5">Reasoning</div>
+            <div className="text-slate-500 leading-relaxed">{debug.reasoning}</div>
           </div>
         </div>
       )}
@@ -1354,11 +1334,11 @@ function QueryDebugPanel({ debug }: { debug: RouterDebugData }) {
 // ─── Valuation Timeline Card ──────────────────────────────────────────────────
 
 const MARK_COLORS: Record<string, string> = {
-  "Entry": "#64748b",         // slate
-  "Internal": "#3b82f6",      // blue
-  "Markup Round": "#10b981",  // emerald
-  "Exit": "#6366f1",          // indigo
-  "Write Off": "#ef4444",     // red
+  "Entry": "#64748b",
+  "Internal": "#3b82f6",
+  "Markup Round": "#4a9e70",
+  "Exit": "#6366f1",
+  "Write Off": "#c45b5b",
 };
 
 function ValuationSparkline({ marks, dealCurrency, entrySharePrice }: {
@@ -1368,9 +1348,8 @@ function ValuationSparkline({ marks, dealCurrency, entrySharePrice }: {
 }) {
   if (marks.length < 2) return null;
 
-  const W = 440;
-  const H = 90;
-  const PAD = { top: 10, right: 12, bottom: 20, left: 8 };
+  const W = 440; const H = 90;
+  const PAD = { top: 10, right: 14, bottom: 20, left: 8 };
   const chartW = W - PAD.left - PAD.right;
   const chartH = H - PAD.top - PAD.bottom;
 
@@ -1378,79 +1357,34 @@ function ValuationSparkline({ marks, dealCurrency, entrySharePrice }: {
   const minPrice = Math.min(...prices, entrySharePrice * 0.85);
   const maxPrice = Math.max(...prices) * 1.05;
   const priceRange = maxPrice - minPrice || 1;
-
   const firstDate = new Date(marks[0].date).getTime();
   const lastDate = new Date(marks[marks.length - 1].date).getTime();
   const dateRange = lastDate - firstDate || 1;
 
-  const toX = (date: string) =>
-    PAD.left + ((new Date(date).getTime() - firstDate) / dateRange) * chartW;
-  const toY = (price: number) =>
-    PAD.top + chartH - ((price - minPrice) / priceRange) * chartH;
-
+  const toX = (date: string) => PAD.left + ((new Date(date).getTime() - firstDate) / dateRange) * chartW;
+  const toY = (price: number) => PAD.top + chartH - ((price - minPrice) / priceRange) * chartH;
   const entryY = toY(entrySharePrice);
-
   const points = marks.map((m) => ({ x: toX(m.date), y: toY(m.sharePrice), m }));
-  const pathD = points
-    .map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`)
-    .join(" ");
+  const pathD = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ");
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ maxHeight: H }}>
-      {/* Entry price reference line */}
-      <line
-        x1={PAD.left} y1={entryY} x2={W - PAD.right} y2={entryY}
-        stroke="#334155" strokeWidth="1" strokeDasharray="3 3"
-      />
-      <text x={W - PAD.right + 2} y={entryY + 3} fontSize="8" fill="#475569">entry</text>
-
-      {/* Line connecting marks */}
-      <path d={pathD} fill="none" stroke="#3b82f6" strokeWidth="1.5" strokeLinejoin="round" />
-
-      {/* Down-round shading */}
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ maxHeight: H }} aria-hidden="true">
+      <line x1={PAD.left} y1={entryY} x2={W - PAD.right} y2={entryY} stroke="#1d2638" strokeWidth="1" strokeDasharray="3 3" />
+      <text x={W - PAD.right + 2} y={entryY + 3} fontSize="7.5" fill="#293550">entry</text>
+      <path d={pathD} fill="none" stroke="#3b82f6" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
       {points.map((p, i) => {
         if (i === 0 || !p.m.isDownRound) return null;
         const prev = points[i - 1];
-        return (
-          <rect
-            key={p.m.valuationId + "-shade"}
-            x={prev.x} y={PAD.top}
-            width={p.x - prev.x} height={chartH}
-            fill="#ef4444" fillOpacity="0.06"
-          />
-        );
+        return <rect key={p.m.valuationId + "-shade"} x={prev.x} y={PAD.top} width={p.x - prev.x} height={chartH} fill="#c45b5b" fillOpacity="0.06" />;
       })}
-
-      {/* Mark dots */}
       {points.map((p) => (
-        <circle
-          key={p.m.valuationId}
-          cx={p.x} cy={p.y} r={4}
-          fill={p.m.isDownRound ? "#ef4444" : (MARK_COLORS[p.m.markSource] ?? "#64748b")}
-          stroke="#09090f" strokeWidth="1.5"
-        />
+        <circle key={p.m.valuationId} cx={p.x} cy={p.y} r={3.5} fill={p.m.isDownRound ? "#c45b5b" : (MARK_COLORS[p.m.markSource] ?? "#64748b")} stroke="#141c28" strokeWidth="1.5" />
       ))}
-
-      {/* Date labels: first and last */}
-      <text x={points[0].x} y={H - 2} fontSize="8" fill="#475569" textAnchor="middle">
-        {marks[0].date.slice(0, 7)}
-      </text>
-      <text x={points[points.length - 1].x} y={H - 2} fontSize="8" fill="#475569" textAnchor="middle">
-        {marks[marks.length - 1].date.slice(0, 7)}
-      </text>
-
-      {/* Price label at peak dot */}
+      <text x={points[0].x} y={H - 2} fontSize="7.5" fill="#293550" textAnchor="middle">{marks[0].date.slice(0, 7)}</text>
+      <text x={points[points.length - 1].x} y={H - 2} fontSize="7.5" fill="#293550" textAnchor="middle">{marks[marks.length - 1].date.slice(0, 7)}</text>
       {(() => {
         const peak = [...points].sort((a, b) => b.m.sharePrice - a.m.sharePrice)[0];
-        return (
-          <text
-            x={peak.x} y={peak.y - 7}
-            fontSize="8" fill="#e2e8f0" textAnchor="middle"
-            fontWeight="600"
-          >
-            {peak.m.sharePriceDisplay}
-          </text>
-        );
+        return <text x={peak.x} y={peak.y - 7} fontSize="7.5" fill="#94a3b8" textAnchor="middle" fontWeight="600">{peak.m.sharePriceDisplay}</text>;
       })()}
     </svg>
   );
@@ -1458,12 +1392,9 @@ function ValuationSparkline({ marks, dealCurrency, entrySharePrice }: {
 
 function ValuationTimelineCard({ card }: { card: ValuationCard }) {
   if (card.timelines.length === 0) return null;
-
   return (
-    <div className="mt-4 space-y-3">
-      {card.timelines.map((tl) => (
-        <ValuationTimelineItem key={`${tl.company}-${tl.round}`} tl={tl} />
-      ))}
+    <div className="mt-5 space-y-3">
+      {card.timelines.map((tl) => <ValuationTimelineItem key={`${tl.company}-${tl.round}`} tl={tl} />)}
     </div>
   );
 }
@@ -1475,175 +1406,108 @@ function ValuationTimelineItem({ tl }: { tl: ValuationCardTimeline }) {
 
   return (
     <div className="rounded-xl border border-base-border bg-base-elevated overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-base-border">
-        <div className="flex items-center gap-2">
-          <TrendingUp className="w-3.5 h-3.5 text-blue-400 flex-none" />
+      <div className="flex items-center justify-between px-4 py-3 border-b border-base-border bg-base-surface">
+        <div className="flex items-center gap-2 flex-wrap">
           <span className="text-slate-200 text-sm font-medium">{tl.company}</span>
-          <span className="text-slate-500 text-xs">{tl.round}</span>
-          {tl.isWrittenOff && (
-            <span className="text-xs px-1.5 py-0.5 rounded bg-red-950 text-red-400 border border-red-900/50">Written Off</span>
-          )}
-          {tl.isExited && (
-            <span className="text-xs px-1.5 py-0.5 rounded bg-indigo-950 text-indigo-400 border border-indigo-900/50">Exited</span>
-          )}
+          <span className="text-slate-600 text-xs">{tl.round}</span>
+          {tl.isWrittenOff && <span className="badge-written-off">Written Off</span>}
+          {tl.isExited && <span className="badge-exited">Exited</span>}
           {tl.hasDownRound && (
-            <span className="text-xs px-1.5 py-0.5 rounded bg-red-950/60 text-red-400 border border-red-900/40 flex items-center gap-1">
-              <TrendingDown className="w-3 h-3" /> Down round
+            <span className="badge flex items-center gap-1 bg-red-950/60 text-red-400 border-red-900/40">
+              <TrendingDown className="w-2.5 h-2.5" /> Down round
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2 text-xs tabular-nums">
-          <span className="text-slate-500">{tl.markCount} marks · {Math.round(tl.spanDays / 365 * 10) / 10}yr</span>
-        </div>
+        <span className="text-[11px] text-slate-600 tabular-nums flex-none">
+          {tl.markCount} marks · {Math.round(tl.spanDays / 365 * 10) / 10}yr
+        </span>
       </div>
 
-      {/* Sparkline */}
       {tl.marks.length >= 2 && (
-        <div className="px-4 pt-3 pb-1">
-          <ValuationSparkline
-            marks={tl.marks}
-            dealCurrency={tl.dealCurrency}
-            entrySharePrice={tl.entrySharePrice}
-          />
+        <div className="px-4 pt-4 pb-1">
+          <ValuationSparkline marks={tl.marks} dealCurrency={tl.dealCurrency} entrySharePrice={tl.entrySharePrice} />
         </div>
       )}
 
-      {/* Summary row */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-0 divide-x divide-base-border border-t border-base-border">
-        <div className="px-3 py-2.5">
-          <div className="text-[10px] text-slate-500 uppercase tracking-wide mb-0.5">Entry price</div>
-          <div className="text-slate-300 text-xs tabular-nums font-medium">
-            {tl.dealCurrency} {tl.entrySharePrice}
-          </div>
-          {tl.effectiveSharePrice !== tl.entrySharePrice && (
-            <div className="text-slate-500 text-[10px]">
-              Your price: {tl.dealCurrency} {tl.effectiveSharePrice}
+      <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-base-border border-t border-base-border">
+        {[
+          { label: "Entry price", value: `${tl.dealCurrency} ${tl.entrySharePrice}`, sub: tl.effectiveSharePrice !== tl.entrySharePrice ? `Your price: ${tl.dealCurrency} ${tl.effectiveSharePrice}` : null },
+          { label: "Latest mark", value: tl.latestSharePriceDisplay ?? "—" },
+          { label: "Your MOIC", value: tl.latestMoicDisplay, color: tl.latestMoic === null ? "text-slate-600" : tl.latestMoic >= 2 ? "text-emerald-400" : tl.latestMoic >= 1 ? "text-slate-200" : "text-red-400" },
+          { label: "Unrealised G/L", value: tl.currentUnrealisedGainLossDisplay ?? "—", color: isGain ? "text-emerald-400" : "text-red-400" },
+        ].map((cell, i) => (
+          <div key={i} className="px-4 py-3">
+            <div className="text-[9px] uppercase tracking-widest text-slate-600 mb-1">{cell.label}</div>
+            <div className={clsx("text-xs tabular-nums font-medium", (cell as { color?: string }).color ?? "text-slate-300")}>
+              {cell.value}
             </div>
-          )}
-        </div>
-        <div className="px-3 py-2.5">
-          <div className="text-[10px] text-slate-500 uppercase tracking-wide mb-0.5">Latest mark</div>
-          <div className="text-slate-300 text-xs tabular-nums font-medium">
-            {tl.latestSharePriceDisplay ?? "—"}
+            {(cell as { sub?: string | null }).sub && (
+              <div className="text-[10px] text-slate-600 mt-0.5">{(cell as { sub?: string | null }).sub}</div>
+            )}
           </div>
-        </div>
-        <div className="px-3 py-2.5">
-          <div className="text-[10px] text-slate-500 uppercase tracking-wide mb-0.5">Your MOIC</div>
-          <div className={clsx(
-            "text-xs tabular-nums font-semibold",
-            tl.latestMoic === null ? "text-slate-500"
-              : tl.latestMoic >= 2 ? "text-emerald-400"
-              : tl.latestMoic >= 1 ? "text-slate-200"
-              : "text-red-400"
-          )}>
-            {tl.latestMoicDisplay}
-          </div>
-          {tl.peakMoic !== null && tl.peakMoic !== tl.latestMoic && (
-            <div className="text-slate-600 text-[10px]">Peak: {tl.peakMoicDisplay} ({tl.peakMoicDate?.slice(0,7)})</div>
-          )}
-        </div>
-        <div className="px-3 py-2.5">
-          <div className="text-[10px] text-slate-500 uppercase tracking-wide mb-0.5">Gain / loss</div>
-          <div className={clsx(
-            "text-xs tabular-nums font-medium",
-            isGain ? "text-emerald-400" : "text-red-400"
-          )}>
-            {tl.currentUnrealisedGainLossDisplay ?? "—"}
-          </div>
-        </div>
+        ))}
       </div>
 
-      {/* Flags */}
       {(tl.isSparse || tl.hasDownRound || tl.isWrittenOff) && (
-        <div className="px-4 py-2.5 border-t border-base-border space-y-1.5">
+        <div className="px-4 py-3 border-t border-base-border space-y-1.5">
           {tl.isSparse && (
-            <div className="flex items-start gap-1.5 text-[11px] text-amber-400/80">
-              <Info className="w-3 h-3 flex-none mt-0.5" />
-              <span>Infrequent valuation cadence — longest gap: {Math.round(tl.maxGapDays / 30)} months. Value between marks is unobservable.</span>
+            <div className="flex items-start gap-1.5 text-[11px] text-amber-500/70">
+              <Info className="w-3 h-3 flex-none mt-px" />
+              <span>Infrequent cadence — longest gap: {Math.round(tl.maxGapDays / 30)} months. Value between marks is unobservable.</span>
             </div>
           )}
           {tl.hasDownRound && tl.downRounds.map((dr) => (
-            <div key={dr.date} className="flex items-start gap-1.5 text-[11px] text-red-400/80">
-              <TrendingDown className="w-3 h-3 flex-none mt-0.5" />
-              <span>Down round on {dr.date}: {tl.dealCurrency} {dr.fromPrice} → {dr.toPrice} (−{dr.pctDrop.toFixed(1)}%)</span>
+            <div key={dr.date} className="flex items-start gap-1.5 text-[11px] text-red-400/70">
+              <TrendingDown className="w-3 h-3 flex-none mt-px" />
+              <span>Down round {dr.date}: {tl.dealCurrency} {dr.fromPrice} → {dr.toPrice} (−{dr.pctDrop.toFixed(1)}%)</span>
             </div>
           ))}
           {tl.isWrittenOff && (
-            <div className="flex items-start gap-1.5 text-[11px] text-red-400/80">
-              <AlertTriangle className="w-3 h-3 flex-none mt-0.5" />
+            <div className="flex items-start gap-1.5 text-[11px] text-red-400/70">
+              <AlertTriangle className="w-3 h-3 flex-none mt-px" />
               <span>Position written off — current value is zero.</span>
             </div>
           )}
         </div>
       )}
 
-      {/* Toggle mark table */}
-      <div className="border-t border-base-border">
-        <button
-          onClick={() => setShowTable((s) => !s)}
-          className="w-full flex items-center justify-between px-4 py-2.5 text-xs text-slate-500 hover:text-slate-300 hover:bg-base-surface/50 transition-colors"
-        >
-          <span>Valuation marks ({tl.markCount})</span>
-          <ChevronDown className={clsx("w-3.5 h-3.5 transition-transform", showTable && "rotate-180")} />
-        </button>
+      {tl.peakMoic !== null && tl.peakMoic !== tl.latestMoic && (
+        <div className="px-4 pb-3 -mt-1">
+          <span className="text-[10px] text-slate-700">Peak MOIC: {tl.peakMoicDisplay} ({tl.peakMoicDate?.slice(0, 7)})</span>
+        </div>
+      )}
 
+      <div className="border-t border-base-border">
+        <button onClick={() => setShowTable((s) => !s)} className="disclosure-trigger">
+          <span>Valuation marks ({tl.markCount})</span>
+          <ChevronDown className={clsx("w-3.5 h-3.5 transition-transform duration-150", showTable && "rotate-180")} />
+        </button>
         {showTable && (
-          <div className="px-4 pb-3 overflow-x-auto">
+          <div className="overflow-x-auto border-t border-base-border">
             <table className="w-full text-xs">
               <thead>
-                <tr className="text-slate-600 border-b border-base-border">
-                  <th className="text-left py-1.5 pr-3 font-normal">Date</th>
-                  <th className="text-left py-1.5 pr-3 font-normal">Source</th>
-                  <th className="text-right py-1.5 pr-3 font-normal">Share price</th>
-                  <th className="text-right py-1.5 pr-3 font-normal">vs entry</th>
-                  <th className="text-right py-1.5 pr-3 font-normal">Chg</th>
-                  <th className="text-right py-1.5 pr-3 font-normal">Your value</th>
-                  <th className="text-right py-1.5 font-normal">MOIC</th>
+                <tr>
+                  {["Date", "Source", "Price", "vs Entry", "Chg %", "Your value", "MOIC"].map((h) => (
+                    <th key={h} className="text-left py-2 px-3 text-[10px] text-slate-600 font-medium uppercase tracking-wider border-b border-base-border whitespace-nowrap">{h}</th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
                 {tl.marks.map((m) => (
-                  <tr
-                    key={m.valuationId}
-                    className={clsx(
-                      "border-b border-base-border/50 last:border-0",
-                      m.isDownRound && "bg-red-950/10"
-                    )}
-                  >
-                    <td className="py-1.5 pr-3 text-slate-400 tabular-nums">{m.date}</td>
-                    <td className="py-1.5 pr-3">
-                      <span
-                        className="text-[10px] px-1 py-0.5 rounded"
-                        style={{
-                          color: MARK_COLORS[m.markSource] ?? "#64748b",
-                          background: (MARK_COLORS[m.markSource] ?? "#64748b") + "1a",
-                        }}
-                      >
+                  <tr key={m.valuationId} className={clsx("border-b border-base-border/40 last:border-0 hover:bg-base-surface/50 transition-colors", m.isDownRound && "bg-red-950/10")}>
+                    <td className="py-2 px-3 text-slate-500 tabular-nums whitespace-nowrap">{m.date}</td>
+                    <td className="py-2 px-3">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ color: MARK_COLORS[m.markSource] ?? "#64748b", background: (MARK_COLORS[m.markSource] ?? "#64748b") + "1a" }}>
                         {m.markSource}
                       </span>
                     </td>
-                    <td className="py-1.5 pr-3 text-right tabular-nums text-slate-300">{m.sharePriceDisplay}</td>
-                    <td className="py-1.5 pr-3 text-right tabular-nums text-slate-400">{m.multipleVsEntry}×</td>
-                    <td className={clsx(
-                      "py-1.5 pr-3 text-right tabular-nums",
-                      m.priceChangePct === null ? "text-slate-600"
-                        : m.isDownRound ? "text-red-400"
-                        : m.priceChangePct > 0 ? "text-emerald-400"
-                        : "text-slate-400"
-                    )}>
-                      {m.priceChangePct === null
-                        ? "—"
-                        : `${m.priceChangePct >= 0 ? "+" : ""}${m.priceChangePct.toFixed(1)}%`}
+                    <td className="py-2 px-3 text-right tabular-nums text-slate-300 whitespace-nowrap">{m.sharePriceDisplay}</td>
+                    <td className="py-2 px-3 text-right tabular-nums text-slate-500">{m.multipleVsEntry}×</td>
+                    <td className={clsx("py-2 px-3 text-right tabular-nums", m.priceChangePct === null ? "text-slate-700" : m.isDownRound ? "text-red-400" : m.priceChangePct > 0 ? "text-emerald-400" : "text-slate-500")}>
+                      {m.priceChangePct === null ? "—" : `${m.priceChangePct >= 0 ? "+" : ""}${m.priceChangePct.toFixed(1)}%`}
                     </td>
-                    <td className="py-1.5 pr-3 text-right tabular-nums text-slate-300">{m.investorValueDisplay}</td>
-                    <td className={clsx(
-                      "py-1.5 text-right tabular-nums font-medium",
-                      m.moicAtMark === null ? "text-slate-600"
-                        : m.moicAtMark >= 2 ? "text-emerald-400"
-                        : m.moicAtMark >= 1 ? "text-slate-300"
-                        : "text-red-400"
-                    )}>
+                    <td className="py-2 px-3 text-right tabular-nums text-slate-300 whitespace-nowrap">{m.investorValueDisplay}</td>
+                    <td className={clsx("py-2 px-3 text-right tabular-nums font-medium whitespace-nowrap", m.moicAtMark === null ? "text-slate-700" : m.moicAtMark >= 2 ? "text-emerald-400" : m.moicAtMark >= 1 ? "text-slate-300" : "text-red-400")}>
                       {m.moicDisplay}
                     </td>
                   </tr>
@@ -1660,65 +1524,38 @@ function ValuationTimelineItem({ tl }: { tl: ValuationCardTimeline }) {
 // ─── Fee Schedule Row ─────────────────────────────────────────────────────────
 
 function FeeScheduleRow({ line, reportingCurrency }: { line: FeeCardScheduleLine; reportingCurrency: string }) {
-  const hasChange = line.discounted || (line.standardDisplay !== line.effectiveDisplay);
-
+  const hasChange = line.discounted || line.standardDisplay !== line.effectiveDisplay;
   return (
     <div className={clsx(
-      "grid grid-cols-[1fr_auto_auto] gap-2 items-center text-xs py-1.5 px-2 rounded-lg",
-      line.discounted ? "bg-emerald-950/20" : "bg-transparent"
+      "grid grid-cols-[1fr_auto_auto] gap-3 items-center text-xs py-2 px-2 rounded-lg",
+      line.discounted ? "bg-accent-subtle/50" : ""
     )}>
-      {/* Fee type + basis */}
       <div>
-        <span className={clsx("font-medium", line.discounted ? "text-slate-200" : "text-slate-400")}>
-          {line.feeType}
-        </span>
-        <span className="text-slate-600 ml-1.5">{line.basis}</span>
+        <span className={clsx("font-medium", line.discounted ? "text-slate-200" : "text-slate-400")}>{line.feeType}</span>
+        <span className="text-slate-700 ml-1.5 text-[10px]">{line.basis}</span>
       </div>
-
-      {/* Standard → Effective */}
       <div className="flex items-center gap-1.5 tabular-nums">
         {hasChange ? (
           <>
-            <span className="text-slate-600 line-through">{line.standardDisplay}</span>
-            <span className="text-slate-400">→</span>
-            <span className={line.discounted ? "text-emerald-400 font-medium" : "text-slate-300"}>
-              {line.effectiveDisplay}
-            </span>
+            <span className="text-slate-700 line-through text-[11px]">{line.standardDisplay}</span>
+            <span className="text-slate-600">→</span>
+            <span className={line.discounted ? "text-accent font-semibold" : "text-slate-300"}>{line.effectiveDisplay}</span>
           </>
         ) : (
           <span className="text-slate-400">{line.effectiveDisplay}</span>
         )}
       </div>
-
-      {/* Saving or undeterminable tag */}
       <div className="text-right min-w-[80px]">
         {line.undeterminable ? (
-          <span className="text-slate-600 italic">at exit</span>
+          <span className="text-slate-700 text-[10px] italic">at exit</span>
         ) : line.savingDisplay ? (
           <div>
-            <span className="text-emerald-400 font-medium">{line.savingDisplay}</span>
-            {line.savingRptDisplay && (
-              <div className="text-emerald-600 text-[10px]">≈ {line.savingRptDisplay} / period</div>
-            )}
+            <span className="text-accent font-semibold text-[11px]">{line.savingDisplay}</span>
+            {line.savingRptDisplay && <div className="text-accent/50 text-[9px]">≈ {line.savingRptDisplay}/period</div>}
           </div>
         ) : (
-          <span className="text-slate-700">—</span>
+          <span className="text-slate-800">—</span>
         )}
-      </div>
-    </div>
-  );
-}
-
-function ThinkingIndicator() {
-  return (
-    <div className="flex items-start gap-3">
-      <div className="flex-none w-7 h-7 rounded-lg bg-accent/15 border border-accent/25 flex items-center justify-center">
-        <span className="text-accent font-bold text-xs">E</span>
-      </div>
-      <div className="flex items-center gap-1 pt-2">
-        <div className="w-1.5 h-1.5 rounded-full bg-accent loading-dot" />
-        <div className="w-1.5 h-1.5 rounded-full bg-accent loading-dot" />
-        <div className="w-1.5 h-1.5 rounded-full bg-accent loading-dot" />
       </div>
     </div>
   );

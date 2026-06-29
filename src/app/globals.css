@@ -2,13 +2,11 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-
 @layer base {
   :root {
-    --scrollbar-track: #0f1117;
-    --scrollbar-thumb: #1e2535;
-    --scrollbar-thumb-hover: #2a3347;
+    --scrollbar-track: #0b0d12;
+    --scrollbar-thumb: #1d2638;
+    --scrollbar-thumb-hover: #293550;
   }
 
   * {
@@ -16,23 +14,10 @@
     scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
   }
 
-  *::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-  }
-
-  *::-webkit-scrollbar-track {
-    background: var(--scrollbar-track);
-  }
-
-  *::-webkit-scrollbar-thumb {
-    background-color: var(--scrollbar-thumb);
-    border-radius: 3px;
-  }
-
-  *::-webkit-scrollbar-thumb:hover {
-    background-color: var(--scrollbar-thumb-hover);
-  }
+  *::-webkit-scrollbar { width: 5px; height: 5px; }
+  *::-webkit-scrollbar-track { background: var(--scrollbar-track); }
+  *::-webkit-scrollbar-thumb { background-color: var(--scrollbar-thumb); border-radius: 2px; }
+  *::-webkit-scrollbar-thumb:hover { background-color: var(--scrollbar-thumb-hover); }
 
   html {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -40,137 +25,156 @@
 
   body {
     @apply bg-base text-slate-100 antialiased;
-    background-color: #09090f;
+    background-color: #0b0d12;
   }
 
-  /* Tabular numbers for financial data */
   .tabular-nums {
     font-variant-numeric: tabular-nums;
     font-feature-settings: "tnum";
   }
+
+  .font-display {
+    font-family: 'DM Serif Display', Georgia, serif;
+  }
 }
 
 @layer components {
-  /* Premium card style */
+  /* ── Surface cards ── */
   .card {
     @apply bg-base-surface border border-base-border rounded-xl;
   }
-
   .card-elevated {
     @apply bg-base-elevated border border-base-border rounded-xl;
   }
 
-  /* Accent button */
+  /* ── Buttons ── */
   .btn-primary {
     @apply bg-accent text-slate-950 font-semibold px-4 py-2 rounded-lg
            hover:bg-accent-dim transition-colors duration-150
            disabled:opacity-40 disabled:cursor-not-allowed;
   }
-
   .btn-ghost {
     @apply text-slate-400 px-3 py-2 rounded-lg
            hover:bg-base-elevated hover:text-slate-200 transition-colors duration-150;
   }
 
-  /* Status badges */
-  .badge-active {
-    @apply text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-900;
+  /* ── Status badges ── */
+  .badge {
+    @apply text-[11px] font-medium px-2 py-0.5 rounded border leading-none;
+  }
+  .badge-active   { @apply badge bg-emerald-950/80 text-emerald-400 border-emerald-900/60; }
+  .badge-exited   { @apply badge bg-blue-950/80 text-blue-400 border-blue-900/60; }
+  .badge-written-off { @apply badge bg-red-950/80 text-red-400 border-red-900/60; }
+  .badge-pending  { @apply badge bg-amber-950/80 text-amber-400 border-amber-900/60; }
+  .badge-overdue  { @apply badge bg-red-950/80 text-red-400 border-red-900/60; }
+  .badge-verified { @apply badge bg-emerald-950/80 text-emerald-400 border-emerald-900/60; }
+  .badge-discount { @apply badge bg-accent-subtle text-accent border-accent-muted/50; }
+
+  /* ── Response card ── */
+  .response-card {
+    @apply rounded-xl border border-base-border bg-base-elevated overflow-hidden;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.4), 0 0 0 0.5px rgba(29,38,56,0.8);
+  }
+  .response-card-header {
+    @apply flex items-center justify-between px-5 py-2.5 border-b border-base-border bg-base-surface;
+  }
+  .response-card-body {
+    @apply p-5;
+  }
+  .response-card-footer {
+    @apply flex items-center justify-between gap-3 px-5 py-3 border-t border-base-border bg-base-surface;
   }
 
-  .badge-exited {
-    @apply text-xs font-medium px-2 py-0.5 rounded-full bg-blue-950 text-blue-400 border border-blue-900;
+  /* ── KPI cell ── */
+  .kpi-cell {
+    @apply flex flex-col gap-0.5;
+  }
+  .kpi-value {
+    @apply font-display text-slate-100 tabular-nums leading-none;
+    font-size: 1.05rem;
+  }
+  .kpi-label {
+    @apply text-[10px] uppercase tracking-wider text-slate-500 font-medium leading-none mt-1;
+  }
+  .kpi-sub {
+    @apply text-[10px] text-slate-600 leading-none;
   }
 
-  .badge-written-off {
-    @apply text-xs font-medium px-2 py-0.5 rounded-full bg-red-950 text-red-400 border border-red-900;
-  }
-
-  .badge-pending {
-    @apply text-xs font-medium px-2 py-0.5 rounded-full bg-amber-950 text-amber-400 border border-amber-900;
-  }
-
-  .badge-overdue {
-    @apply text-xs font-medium px-2 py-0.5 rounded-full bg-red-950 text-red-400 border border-red-900;
-  }
-
-  .badge-verified {
-    @apply text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-900;
-  }
-
-  /* Prose styles for assistant messages */
+  /* ── Prose (assistant narrative) ── */
   .prose-dark {
-    @apply text-slate-200;
+    @apply text-slate-300;
   }
-
-  .prose-dark h1,
-  .prose-dark h2,
-  .prose-dark h3 {
-    @apply text-slate-100 font-semibold mt-4 mb-2;
+  .prose-dark h1, .prose-dark h2, .prose-dark h3 {
+    @apply text-slate-100 font-semibold mt-5 mb-2 first:mt-0;
   }
+  .prose-dark h2 { @apply text-base; }
+  .prose-dark h3 { @apply text-sm; }
+  .prose-dark strong { @apply text-slate-100 font-semibold; }
+  .prose-dark em { @apply text-slate-400 not-italic; }
+  .prose-dark p { @apply mb-3 last:mb-0 leading-relaxed; }
+  .prose-dark ul { @apply list-none pl-0 mb-3 space-y-1; }
+  .prose-dark ol { @apply list-decimal pl-5 mb-3 space-y-1; }
+  .prose-dark li { @apply text-slate-300 pl-3 relative; }
+  .prose-dark ul li::before { content: "–"; @apply absolute left-0 text-slate-600; }
 
-  .prose-dark strong {
-    @apply text-slate-100 font-semibold;
-  }
-
-  .prose-dark p {
-    @apply mb-3 last:mb-0;
-  }
-
-  .prose-dark ul {
-    @apply list-disc pl-5 mb-3 space-y-1;
-  }
-
-  .prose-dark ol {
-    @apply list-decimal pl-5 mb-3 space-y-1;
-  }
-
-  .prose-dark li {
-    @apply text-slate-200;
-  }
-
+  /* ── Financial data tables ── */
   .prose-dark table {
-    @apply w-full text-sm mb-4 border-collapse;
+    @apply w-full text-xs mb-4 border-collapse;
+    border-spacing: 0;
   }
-
   .prose-dark th {
-    @apply text-left text-slate-400 font-medium pb-2 border-b border-base-border px-2 py-1;
+    @apply text-left text-[10px] uppercase tracking-wider text-slate-500 font-medium
+           pb-2 pt-1 px-3 border-b border-base-border;
   }
-
   .prose-dark td {
-    @apply px-2 py-1.5 border-b border-base-border text-slate-200 tabular-nums;
+    @apply px-3 py-2 border-b border-base-border/60 text-slate-300 tabular-nums;
   }
-
-  .prose-dark tr:last-child td {
-    @apply border-b-0;
-  }
-
+  .prose-dark tr:last-child td { @apply border-b-0; }
+  .prose-dark tr:hover td { @apply bg-base-surface/50; }
   .prose-dark code {
-    @apply text-accent bg-base-elevated px-1.5 py-0.5 rounded text-xs font-mono;
+    @apply text-accent bg-accent-subtle px-1.5 py-0.5 rounded text-[11px] font-mono;
   }
-
   .prose-dark pre {
-    @apply bg-base-elevated rounded-lg p-4 overflow-x-auto mb-3;
+    @apply bg-base-surface rounded-lg p-4 overflow-x-auto mb-3 border border-base-border;
   }
-
-  .prose-dark pre code {
-    @apply bg-transparent p-0 text-slate-300;
-  }
-
+  .prose-dark pre code { @apply bg-transparent p-0 text-slate-300; }
   .prose-dark blockquote {
-    @apply border-l-2 border-accent pl-4 text-slate-400 italic;
+    @apply border-l-2 border-base-border-strong pl-4 text-slate-500 my-3;
+  }
+  .prose-dark hr { @apply border-base-border my-4; }
+
+  /* ── Section dividers within cards ── */
+  .card-section {
+    @apply px-5 py-4 border-b border-base-border last:border-b-0;
+  }
+  .card-section-label {
+    @apply text-[9px] uppercase tracking-widest text-slate-600 font-medium mb-2;
   }
 
-  .prose-dark hr {
-    @apply border-base-border my-4;
+  /* ── Collapsible disclosure ── */
+  .disclosure-trigger {
+    @apply w-full flex items-center justify-between px-4 py-2.5 text-xs text-slate-500
+           hover:text-slate-300 hover:bg-base-surface/50 transition-colors text-left;
+  }
+
+  /* ── Follow-up chips ── */
+  .followup-chip {
+    @apply text-[11px] px-2.5 py-1 rounded-md border border-base-border
+           bg-base-surface text-slate-500 hover:border-accent/40 hover:text-slate-300
+           hover:bg-base-elevated transition-all cursor-pointer leading-none;
+  }
+
+  /* ── Source type pills ── */
+  .source-pill {
+    @apply text-[10px] px-1.5 py-0.5 rounded border font-medium tracking-wide;
   }
 }
 
-/* Loading dot animation */
+/* Loading dots */
 @keyframes loading-dot {
-  0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
+  0%, 80%, 100% { opacity: 0.2; transform: scale(0.75); }
   40% { opacity: 1; transform: scale(1); }
 }
-
 .loading-dot:nth-child(1) { animation: loading-dot 1.2s infinite 0s; }
 .loading-dot:nth-child(2) { animation: loading-dot 1.2s infinite 0.2s; }
 .loading-dot:nth-child(3) { animation: loading-dot 1.2s infinite 0.4s; }

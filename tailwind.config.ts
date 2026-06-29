@@ -10,35 +10,31 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // EquiTie design system — premium dark fintech palette
+        // EquiTie — warm dark / muted gold design system
         base: {
-          DEFAULT: "#09090f",
-          surface: "#0f1117",
-          elevated: "#151b27",
-          border: "#1e2535",
-          "border-strong": "#2a3347",
+          DEFAULT: "#0b0d12",
+          surface: "#0f1219",
+          elevated: "#141c28",
+          border: "#1d2638",
+          "border-strong": "#293550",
         },
         accent: {
-          DEFAULT: "#14b8a6",
-          dim: "#0d9488",
-          muted: "#0f766e",
-          subtle: "#134e4a",
-          fg: "#ccfbf1",
+          DEFAULT: "#c9a84c",
+          dim: "#b8923a",
+          muted: "#7a5f24",
+          subtle: "#1c160a",
+          fg: "#f5e8c8",
         },
       },
       fontFamily: {
-        sans: [
-          "Inter",
-          "-apple-system",
-          "BlinkMacSystemFont",
-          "Segoe UI",
-          "sans-serif",
-        ],
+        sans: ["Inter", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "sans-serif"],
+        display: ["DM Serif Display", "Georgia", "serif"],
         mono: ["JetBrains Mono", "Fira Code", "monospace"],
       },
       animation: {
-        "fade-in": "fadeIn 0.2s ease-out",
-        "slide-up": "slideUp 0.3s ease-out",
+        "fade-in": "fadeIn 0.15s ease-out",
+        "slide-up": "slideUp 0.2s ease-out",
+        "slide-in-right": "slideInRight 0.2s ease-out",
         pulse: "pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite",
       },
       keyframes: {
@@ -47,8 +43,12 @@ const config: Config = {
           "100%": { opacity: "1" },
         },
         slideUp: {
-          "0%": { opacity: "0", transform: "translateY(8px)" },
+          "0%": { opacity: "0", transform: "translateY(6px)" },
           "100%": { opacity: "1", transform: "translateY(0)" },
+        },
+        slideInRight: {
+          "0%": { opacity: "0", transform: "translateX(8px)" },
+          "100%": { opacity: "1", transform: "translateX(0)" },
         },
       },
     },

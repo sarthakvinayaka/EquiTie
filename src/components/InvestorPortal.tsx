@@ -25,6 +25,7 @@ import {
   ChevronsUpDown,
   Layers,
   Percent,
+  Printer,
 } from "lucide-react";
 import clsx from "clsx";
 import type { ChatMessage, EvidenceItem, QueryIntent } from "@/lib/domain/types";
@@ -196,6 +197,49 @@ interface ValuationCard {
   timelines: ValuationCardTimeline[];
 }
 
+// ─── Statement card types ──────────────────────────────────────────────────────
+
+interface StatementLineItem {
+  lineId: string;
+  date: string;
+  type: string;
+  company: string;
+  round: string;
+  amountDisplay: string;
+  amountRptDisplay: string;
+  dealCurrency: string;
+  direction: "in" | "out";
+  referenceId: string;
+}
+
+interface StatementCategoryData {
+  name: string;
+  subLabel: string;
+  direction: "in" | "out";
+  totalDisplay: string;
+  lineCount: number;
+  lines: StatementLineItem[];
+}
+
+interface StatementCard {
+  reportingCurrency: string;
+  reportDate: string;
+  investorName: string;
+  earliestDate: string | null;
+  latestDate: string | null;
+  summary: {
+    totalContributions: string;
+    totalFees: string;
+    totalDistributions: string;
+    netCashFlow: string;
+    netCashFlowRaw: number;
+  };
+  categories: StatementCategoryData[];
+  totalLines: number;
+  plainSummary: string;
+  fxNote: string | null;
+}
+
 // ─── Router debug types ────────────────────────────────────────────────────────
 
 interface RouterDebugEntities {
@@ -260,6 +304,7 @@ interface AssistantMessage {
   error?: boolean;
   feeCard?: FeeCard;
   valuationCard?: ValuationCard;
+  statementCard?: StatementCard;
   routerDebug?: RouterDebugData;
   answerObject?: AnswerObjectData;
 }
@@ -480,6 +525,7 @@ export default function InvestorPortal({
         fallbackMode: data.fallbackMode ?? false,
         feeCard: data.feeCard ?? undefined,
         valuationCard: data.valuationCard ?? undefined,
+        statementCard: data.statementCard ?? undefined,
         routerDebug: data.routerDebug ?? undefined,
         answerObject: data.answerObject ?? undefined,
       };
@@ -1194,6 +1240,13 @@ function MessageBubble({
 
           {message.feeCard && <FeeBreakdownCard feeCard={message.feeCard} />}
           {message.valuationCard && <ValuationTimelineCard card={message.valuationCard} />}
+          {message.statementCard && (
+            <StatementLedger
+              card={message.statementCard}
+              evidence={message.evidence ?? []}
+              onViewSources={onViewSources}
+            />
+          )}
         </div>
 
         {ao && ao.glossaryTerms.length > 0 && <AnswerGlossary terms={ao.glossaryTerms} />}
@@ -1560,6 +1613,349 @@ function QueryDebugPanel({ debug }: { debug: RouterDebugData }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Statement Ledger ─────────────────────────────────────────────────────────
+
+function printStatement(card: StatementCard) {
+  const win = window.open("", "_blank");
+  if (!win) return;
+
+  const allLines = card.categories.flatMap((cat) =>
+    cat.lines.map((l) => ({ ...l, categoryName: cat.name }))
+  );
+  allLines.sort((a, b) => a.date.localeCompare(b.date));
+
+  const netSign = card.summary.netCashFlowRaw >= 0 ? "+" : "−";
+
+  win.document.write(`<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Account Statement — ${card.investorName || "Investor"}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Georgia', serif; color: #1a1a2e; margin: 48px; font-size: 12px; line-height: 1.5; }
+  h1 { font-size: 22px; font-weight: bold; letter-spacing: -0.02em; margin-bottom: 2px; }
+  .subtitle { color: #64748b; font-size: 11px; margin-bottom: 28px; }
+  .summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: #e2e8f0; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; margin-bottom: 28px; }
+  .summary-cell { background: #f8fafc; padding: 14px 16px; }
+  .summary-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.08em; color: #94a3b8; margin-bottom: 4px; }
+  .summary-value { font-size: 16px; font-weight: bold; color: #0f172a; font-variant-numeric: tabular-nums; }
+  .summary-value.positive { color: #16a34a; }
+  .summary-value.negative { color: #dc2626; }
+  .narrative { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 14px 16px; margin-bottom: 24px; font-size: 12px; color: #475569; line-height: 1.7; }
+  .category-header { background: #f1f5f9; padding: 8px 12px; font-size: 10px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.08em; color: #475569; border-top: 2px solid #cbd5e1; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
+  th { text-align: left; font-size: 9px; text-transform: uppercase; letter-spacing: 0.07em; color: #94a3b8; padding: 6px 10px; border-bottom: 2px solid #e2e8f0; font-weight: 600; }
+  td { padding: 8px 10px; border-bottom: 1px solid #f1f5f9; font-size: 11px; color: #334155; vertical-align: middle; }
+  tr:last-child td { border-bottom: 1px solid #e2e8f0; }
+  .td-date { color: #64748b; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .td-type { color: #64748b; font-size: 10px; }
+  .td-amount { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .td-amount.out { color: #dc2626; }
+  .td-amount.in { color: #16a34a; }
+  .td-ref { color: #94a3b8; font-size: 9px; font-family: monospace; }
+  .footer { margin-top: 32px; padding-top: 14px; border-top: 1px solid #e2e8f0; font-size: 10px; color: #94a3b8; line-height: 1.6; }
+  @media print { body { margin: 24px; } @page { margin: 24px; } }
+</style>
+</head>
+<body>
+<h1>${card.investorName ? `${card.investorName} — Account Statement` : "Account Statement"}</h1>
+<div class="subtitle">As at ${card.reportDate} &nbsp;·&nbsp; Reporting currency: ${card.reportingCurrency} &nbsp;·&nbsp; ${card.totalLines} transaction${card.totalLines !== 1 ? "s" : ""} &nbsp;·&nbsp; ${card.earliestDate ?? "—"} to ${card.latestDate ?? "—"}</div>
+
+<div class="summary-grid">
+  <div class="summary-cell"><div class="summary-label">Capital Deployed</div><div class="summary-value negative">−${card.summary.totalContributions}</div></div>
+  <div class="summary-cell"><div class="summary-label">Fees Paid</div><div class="summary-value negative">−${card.summary.totalFees}</div></div>
+  <div class="summary-cell"><div class="summary-label">Distributions</div><div class="summary-value positive">+${card.summary.totalDistributions}</div></div>
+  <div class="summary-cell"><div class="summary-label">Net Cash Flow</div><div class="summary-value ${card.summary.netCashFlowRaw >= 0 ? "positive" : ""}">${netSign}${card.summary.netCashFlow}</div></div>
+</div>
+
+<div class="narrative">${card.plainSummary}${card.fxNote ? `<br><br><em>${card.fxNote}</em>` : ""}</div>
+
+${card.categories.map((cat) => `
+<div class="category-header">${cat.name} &nbsp; (${cat.lineCount} line${cat.lineCount !== 1 ? "s" : ""}) &nbsp; Total: ${cat.direction === "out" ? "−" : "+"}${cat.totalDisplay}</div>
+<table>
+<thead><tr>
+  <th>Date</th><th>Type</th><th>Company</th><th>Round</th>
+  <th style="text-align:right">Deal Amount</th>
+  <th style="text-align:right">${card.reportingCurrency}</th>
+  <th>Reference</th>
+</tr></thead>
+<tbody>
+${cat.lines.map((l) => `<tr>
+  <td class="td-date">${l.date}</td>
+  <td class="td-type">${l.type}</td>
+  <td>${l.company}</td>
+  <td>${l.round}</td>
+  <td class="td-amount ${l.direction}">${l.direction === "out" ? "−" : "+"}${l.amountDisplay}</td>
+  <td class="td-amount ${l.direction}">${l.direction === "out" ? "−" : "+"}${l.amountRptDisplay}</td>
+  <td class="td-ref">${l.referenceId}</td>
+</tr>`).join("")}
+</tbody>
+</table>`).join("")}
+
+<div class="footer">
+  <p>This statement is for informational purposes only and does not constitute investment advice. All amounts are in ${card.reportingCurrency} unless otherwise noted.</p>
+  ${card.fxNote ? `<p>${card.fxNote}</p>` : ""}
+  <p>Statement period: ${card.earliestDate ?? "N/A"} – ${card.latestDate ?? "N/A"} &nbsp;·&nbsp; Generated ${card.reportDate}</p>
+</div>
+</body>
+</html>`);
+  win.document.close();
+  win.focus();
+  setTimeout(() => win.print(), 600);
+}
+
+function StatementLedger({
+  card,
+  evidence,
+  onViewSources,
+}: {
+  card: StatementCard;
+  evidence: EvidenceItem[];
+  onViewSources: (ev: EvidenceItem[]) => void;
+}) {
+  const netIsPositive = card.summary.netCashFlowRaw >= 0;
+
+  return (
+    <div className="mt-5 space-y-3">
+      {/* Header row */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <FileText className="w-3.5 h-3.5 text-slate-500" />
+          <span className="text-[10px] uppercase tracking-widest text-slate-500 font-medium">
+            Account Statement
+          </span>
+          {(card.earliestDate || card.latestDate) && (
+            <span className="text-[10px] text-slate-700 tabular-nums">
+              {card.earliestDate} → {card.latestDate}
+            </span>
+          )}
+        </div>
+        <button
+          onClick={() => printStatement(card)}
+          className="flex items-center gap-1.5 text-[10px] px-2.5 py-1 rounded-lg border border-base-border text-slate-500 hover:text-slate-300 hover:border-base-border-strong transition-colors"
+          title="Open printable view (supports Save as PDF)"
+        >
+          <Printer className="w-3 h-3" />
+          Print / Export PDF
+        </button>
+      </div>
+
+      {/* Plain-language summary */}
+      <div className="rounded-xl border border-base-border bg-base-surface px-4 py-3 space-y-1.5">
+        <p className="text-slate-300 text-xs leading-relaxed">{card.plainSummary}</p>
+        {card.fxNote && (
+          <p className="text-[11px] text-slate-600 leading-relaxed">{card.fxNote}</p>
+        )}
+        <p className="text-[10px] text-slate-700">
+          {card.totalLines} transaction{card.totalLines !== 1 ? "s" : ""} recorded
+          {" "}· reporting currency: <span className="text-slate-500">{card.reportingCurrency}</span>
+          {" "}· data as at <span className="text-slate-500 tabular-nums">{card.reportDate}</span>
+        </p>
+        <p className="text-[10px] text-amber-600/70 leading-relaxed">
+          Statement lines reflect actual cash movements only. Portfolio value (MOIC, unrealised gains) lives in the portfolio overview — these are different views of your account that complement but do not duplicate each other.
+        </p>
+      </div>
+
+      {/* Summary KPI strip */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-base-border border border-base-border rounded-xl overflow-hidden bg-base-elevated">
+        {[
+          { label: "Capital Deployed", value: card.summary.totalContributions, prefix: "−", color: "text-slate-300" },
+          { label: "Fees Paid", value: card.summary.totalFees, prefix: "−", color: "text-slate-300" },
+          { label: "Distributions", value: card.summary.totalDistributions, prefix: "+", color: "text-emerald-400" },
+          {
+            label: "Net Cash Flow",
+            value: card.summary.netCashFlow,
+            prefix: netIsPositive ? "+" : "−",
+            color: netIsPositive ? "text-emerald-400" : "text-slate-300",
+          },
+        ].map((kpi, i) => (
+          <div key={i} className="px-4 py-3">
+            <div className="text-[9px] uppercase tracking-widest text-slate-600 mb-1">{kpi.label}</div>
+            <div className={clsx("text-sm tabular-nums font-semibold", kpi.color)}>
+              {kpi.prefix}{kpi.value}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Category blocks */}
+      {card.categories.map((cat) => (
+        <StatementCategoryBlock
+          key={cat.name}
+          category={cat}
+          evidence={evidence}
+          onViewSources={onViewSources}
+          reportingCurrency={card.reportingCurrency}
+        />
+      ))}
+    </div>
+  );
+}
+
+function StatementCategoryBlock({
+  category,
+  evidence,
+  onViewSources,
+  reportingCurrency,
+}: {
+  category: StatementCategoryData;
+  evidence: EvidenceItem[];
+  onViewSources: (ev: EvidenceItem[]) => void;
+  reportingCurrency: string;
+}) {
+  const [expanded, setExpanded] = useState(true);
+  const isInflow = category.direction === "in";
+
+  const categoryEvidence = evidence.filter((ev) =>
+    category.lines.some((l) => l.lineId === ev.id)
+  );
+
+  return (
+    <div className="rounded-xl border border-base-border bg-base-elevated overflow-hidden">
+      {/* Category header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-base-border bg-base-surface">
+        <div className="flex items-center gap-3 min-w-0">
+          <div
+            className={clsx(
+              "w-1 h-5 rounded-full flex-none",
+              isInflow ? "bg-emerald-500/50" : "bg-slate-600/40"
+            )}
+          />
+          <div>
+            <div className="text-slate-200 text-sm font-medium">{category.name}</div>
+            <div className="text-slate-600 text-[10px]">{category.subLabel}</div>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 flex-none">
+          <div className="text-right">
+            <div
+              className={clsx(
+                "text-sm tabular-nums font-semibold",
+                isInflow ? "text-emerald-400" : "text-slate-300"
+              )}
+            >
+              {isInflow ? "+" : "−"}{category.totalDisplay}
+            </div>
+            <div className="text-[10px] text-slate-600">
+              {category.lineCount} line{category.lineCount !== 1 ? "s" : ""}
+            </div>
+          </div>
+          {categoryEvidence.length > 0 && (
+            <button
+              onClick={() => onViewSources(categoryEvidence)}
+              className="flex items-center gap-1 text-[10px] text-slate-600 hover:text-accent transition-colors px-2 py-1 rounded border border-transparent hover:border-base-border"
+              title={`View all ${categoryEvidence.length} source records for this category`}
+            >
+              <BookOpen className="w-3 h-3" />
+              <span>{categoryEvidence.length}</span>
+            </button>
+          )}
+          <button
+            onClick={() => setExpanded((e) => !e)}
+            className="text-slate-600 hover:text-slate-300 transition-colors p-1"
+          >
+            <ChevronDown
+              className={clsx("w-4 h-4 transition-transform duration-150", expanded && "rotate-180")}
+            />
+          </button>
+        </div>
+      </div>
+
+      {/* Column headers */}
+      {expanded && (
+        <>
+          <div className="grid grid-cols-[80px_1fr_auto] gap-2 px-4 py-1.5 border-b border-base-border/50 bg-base-surface/30">
+            <span className="text-[9px] uppercase tracking-widest text-slate-700">Date</span>
+            <span className="text-[9px] uppercase tracking-widest text-slate-700">Company · Type</span>
+            <span className="text-[9px] uppercase tracking-widest text-slate-700 text-right">Amount</span>
+          </div>
+          <div className="divide-y divide-base-border/30">
+            {category.lines.map((line) => (
+              <StatementLineRow
+                key={line.lineId}
+                line={line}
+                evidence={evidence}
+                onViewSources={onViewSources}
+                reportingCurrency={reportingCurrency}
+              />
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function StatementLineRow({
+  line,
+  evidence,
+  onViewSources,
+  reportingCurrency,
+}: {
+  line: StatementLineItem;
+  evidence: EvidenceItem[];
+  onViewSources: (ev: EvidenceItem[]) => void;
+  reportingCurrency: string;
+}) {
+  const lineEvidence = evidence.filter((ev) => ev.id === line.lineId);
+  const isInflow = line.direction === "in";
+
+  return (
+    <div className="flex items-center px-4 py-2.5 hover:bg-base-surface/40 transition-colors group gap-2">
+      {/* Date */}
+      <span className="text-[11px] text-slate-600 tabular-nums w-20 flex-none shrink-0">
+        {line.date}
+      </span>
+
+      {/* Company + round + type */}
+      <div className="flex-1 min-w-0 flex items-center gap-1.5 flex-wrap">
+        <span className="text-xs text-slate-300 font-medium truncate">{line.company}</span>
+        {line.round && (
+          <>
+            <span className="text-slate-700 text-[10px]">·</span>
+            <span className="text-[10px] text-slate-500">{line.round}</span>
+          </>
+        )}
+        <span className="text-slate-700 text-[10px]">·</span>
+        <span className="text-[10px] text-slate-600">{line.type}</span>
+      </div>
+
+      {/* Amounts + reference + source */}
+      <div className="flex items-center gap-2.5 flex-none text-right">
+        {line.dealCurrency !== reportingCurrency && (
+          <span className="text-[10px] text-slate-700 tabular-nums hidden sm:block">
+            {isInflow ? "+" : "−"}{line.amountDisplay}
+          </span>
+        )}
+        <span
+          className={clsx(
+            "text-xs tabular-nums font-semibold w-24 text-right",
+            isInflow ? "text-emerald-400" : "text-slate-300"
+          )}
+        >
+          {isInflow ? "+" : "−"}{line.amountRptDisplay}
+        </span>
+        <span className="text-[9px] text-slate-700 font-mono hidden md:block w-16 text-right truncate">
+          {line.referenceId}
+        </span>
+        <button
+          onClick={() => lineEvidence.length > 0 && onViewSources(lineEvidence)}
+          className={clsx(
+            "w-5 h-5 flex items-center justify-center rounded transition-all",
+            lineEvidence.length > 0
+              ? "text-slate-700 hover:text-accent opacity-0 group-hover:opacity-100"
+              : "invisible"
+          )}
+          title="View source record"
+        >
+          <BookOpen className="w-3 h-3" />
+        </button>
+      </div>
     </div>
   );
 }

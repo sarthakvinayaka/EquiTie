@@ -15,6 +15,7 @@ import { getInvestorFeeBreakdown } from "@/lib/engine/fees";
 import type { FeeBreakdownResult } from "@/lib/engine/fees";
 import { getInvestorValuationTimeline } from "@/lib/engine/valuations";
 import type { ValuationTimelineResult } from "@/lib/engine/valuations";
+import type { StatementSummaryResult } from "@/lib/engine/statement";
 import { getInvestorPersonalizationProfile } from "@/lib/engine";
 import { composeAnswer } from "@/lib/composer";
 import type { AnswerObject } from "@/lib/composer";
@@ -415,16 +416,19 @@ export async function POST(request: Request): Promise<NextResponse> {
           evidence = er5.evidence;
           engineAssumptions = er5.assumptions;
           engineWarnings = er5.warnings;
+          const investorName = db.investors.get(investorId)?.investor_name ?? "";
           computedData = {
             reportDate: REPORT_DATE,
             reportingCurrency: data.reportingCurrency,
             earliestDate: data.earliestDate,
             latestDate: data.latestDate,
+            investorName,
             summary: {
               totalContributions: fmt(data.totalContributionsRpt, data.reportingCurrency),
               totalFees: fmt(data.totalFeesRpt, data.reportingCurrency),
               totalDistributions: fmt(data.totalDistributionsRpt, data.reportingCurrency),
-              netCashFlow: fmt(data.netCashFlowRpt, data.reportingCurrency),
+              netCashFlow: fmt(Math.abs(data.netCashFlowRpt), data.reportingCurrency),
+              netCashFlowRaw: data.netCashFlowRpt,
             },
             recentLines: data.lines.slice(-20).map((l) => ({
               date: l.date,
@@ -435,6 +439,7 @@ export async function POST(request: Request): Promise<NextResponse> {
               direction: l.amountDealCcy < 0 ? "out" : "in",
               amountReporting: fmt(Math.abs(l.amountRpt), data.reportingCurrency),
             })),
+            __statementCard: buildStatementCard(data, investorName),
           };
           break;
         }
@@ -495,6 +500,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     const response: ChatResponse & {
       feeCard?: unknown;
       valuationCard?: unknown;
+      statementCard?: unknown;
       routerDebug?: unknown;
       answerObject?: AnswerObject;
     } = {
@@ -511,6 +517,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       const cd = computedData as Record<string, unknown>;
       if (intent === "fee_detail" && cd.__feeCard) response.feeCard = cd.__feeCard;
       if (intent === "valuation_history" && cd.__valuationCard) response.valuationCard = cd.__valuationCard;
+      if (intent === "account_statement" && cd.__statementCard) response.statementCard = cd.__statementCard;
     }
 
     return NextResponse.json(response);
@@ -604,6 +611,122 @@ function buildValuationCard(
         unrealisedGainLossDisplay: fmt(m.unrealisedGainLossRpt, tl.reportingCurrency),
       })),
     })),
+  };
+}
+
+// ─── Statement card builder for UI ────────────────────────────────────────────
+
+const STMT_CONTRIBUTION_TYPES = new Set(["Capital Contribution"]);
+const STMT_FEE_TYPES = new Set(["Management Fee", "Structuring Fee", "Admin Fee"]);
+const STMT_DISTRIBUTION_TYPES = new Set(["Exit Proceeds", "Secondary Sale"]);
+
+function buildStatementCard(data: StatementSummaryResult, investorName: string) {
+  const { lines, reportingCurrency, totalContributionsRpt, totalFeesRpt, totalDistributionsRpt, netCashFlowRpt, earliestDate, latestDate } = data;
+
+  type LineItem = {
+    lineId: string; date: string; type: string; company: string; round: string;
+    amountDisplay: string; amountRptDisplay: string; dealCurrency: string;
+    direction: "in" | "out"; referenceId: string;
+  };
+
+  const contribLines: LineItem[] = [];
+  const feeLines: LineItem[] = [];
+  const distLines: LineItem[] = [];
+
+  for (const l of lines) {
+    const item: LineItem = {
+      lineId: l.lineId,
+      date: l.date,
+      type: l.type,
+      company: l.companyName,
+      round: l.round,
+      amountDisplay: fmt(Math.abs(l.amountDealCcy), l.dealCurrency),
+      amountRptDisplay: fmt(Math.abs(l.amountRpt), reportingCurrency),
+      dealCurrency: l.dealCurrency,
+      direction: l.amountDealCcy < 0 ? "out" : "in",
+      referenceId: l.referenceId,
+    };
+    if (STMT_CONTRIBUTION_TYPES.has(l.type)) contribLines.push(item);
+    else if (STMT_FEE_TYPES.has(l.type)) feeLines.push(item);
+    else if (STMT_DISTRIBUTION_TYPES.has(l.type)) distLines.push(item);
+  }
+
+  for (const arr of [contribLines, feeLines, distLines]) {
+    arr.sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  const categories = [
+    {
+      name: "Capital Deployed",
+      subLabel: "capital contributions (funds deployed to portfolio companies)",
+      direction: "out" as const,
+      totalDisplay: fmt(totalContributionsRpt, reportingCurrency),
+      lineCount: contribLines.length,
+      lines: contribLines,
+    },
+    {
+      name: "Fees",
+      subLabel: "management, structuring, and admin fees",
+      direction: "out" as const,
+      totalDisplay: fmt(totalFeesRpt, reportingCurrency),
+      lineCount: feeLines.length,
+      lines: feeLines,
+    },
+    {
+      name: "Distributions & Exits",
+      subLabel: "exit proceeds and secondary sale distributions",
+      direction: "in" as const,
+      totalDisplay: fmt(totalDistributionsRpt, reportingCurrency),
+      lineCount: distLines.length,
+      lines: distLines,
+    },
+  ].filter((c) => c.lineCount > 0);
+
+  // Plain-language summary
+  const fmtDate = (d: string) =>
+    new Date(d).toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+  const dateRange =
+    earliestDate && latestDate
+      ? `Between ${fmtDate(earliestDate)} and ${fmtDate(latestDate)},`
+      : "";
+  const netLabel = netCashFlowRpt >= 0 ? "more received than deployed" : "more deployed than received";
+  const parts = [
+    `${dateRange} your account shows ${lines.length} transaction${lines.length !== 1 ? "s" : ""}.`,
+    `You deployed ${fmt(totalContributionsRpt, reportingCurrency)} in capital contributions`,
+    totalFeesRpt > 0
+      ? `and paid ${fmt(totalFeesRpt, reportingCurrency)} in fees.`
+      : "with no fee charges on record.",
+    totalDistributionsRpt > 0
+      ? `You received ${fmt(totalDistributionsRpt, reportingCurrency)} in distributions and exit proceeds.`
+      : "No distributions have been received yet.",
+    `The net cash flow is ${fmt(Math.abs(netCashFlowRpt), reportingCurrency)} (${netLabel}).`,
+  ];
+  const plainSummary = parts.join(" ");
+
+  const dealCurrencies = new Set(lines.map((l) => l.dealCurrency));
+  dealCurrencies.delete(reportingCurrency);
+  const fxNote =
+    dealCurrencies.size > 0
+      ? `Reporting-currency amounts are converted from ${[...dealCurrencies].join(", ")} at static rates as of 25 Jun 2026. Original deal-currency amounts are shown alongside.`
+      : null;
+
+  return {
+    reportingCurrency,
+    reportDate: "2026-06-25",
+    investorName,
+    earliestDate,
+    latestDate,
+    summary: {
+      totalContributions: fmt(totalContributionsRpt, reportingCurrency),
+      totalFees: fmt(totalFeesRpt, reportingCurrency),
+      totalDistributions: fmt(totalDistributionsRpt, reportingCurrency),
+      netCashFlow: fmt(Math.abs(netCashFlowRpt), reportingCurrency),
+      netCashFlowRaw: netCashFlowRpt,
+    },
+    categories,
+    totalLines: lines.length,
+    plainSummary,
+    fxNote,
   };
 }
 

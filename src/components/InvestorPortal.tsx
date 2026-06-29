@@ -180,6 +180,29 @@ interface ValuationCard {
   timelines: ValuationCardTimeline[];
 }
 
+// ─── Router debug types ────────────────────────────────────────────────────────
+
+interface RouterDebugEntities {
+  companyName: string | null;
+  companyId: string | null;
+  round: string | null;
+  metricOrTerm: string | null;
+  dateRange: { from: string | null; to: string | null } | null;
+  ambiguousCompanies: string[] | null;
+}
+
+interface RouterDebugData {
+  intent: string;
+  confidence: number;
+  entities: RouterDebugEntities;
+  backendFunction: string;
+  backendParams: Record<string, unknown>;
+  clarificationPrompt: string | null;
+  reasoning: string;
+  matchedKeywords: string[];
+  evidenceCount: number;
+}
+
 interface AssistantMessage {
   id: string;
   role: "user" | "assistant";
@@ -190,6 +213,7 @@ interface AssistantMessage {
   error?: boolean;
   feeCard?: FeeCard;
   valuationCard?: ValuationCard;
+  routerDebug?: RouterDebugData;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -296,9 +320,11 @@ export default function InvestorPortal({
   const [evidencePanelOpen, setEvidencePanelOpen] = useState(false);
   const [activeEvidence, setActiveEvidence] = useState<EvidenceItem[]>([]);
   const [selectorOpen, setSelectorOpen] = useState(false);
+  const [showDebug, setShowDebug] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const hasFallbackMode = messages.some((m) => m.fallbackMode);
+  const isDev = process.env.NODE_ENV === "development";
 
   // Load snapshot whenever investor changes
   const loadSnapshot = useCallback(async (investorId: string) => {
@@ -372,6 +398,7 @@ export default function InvestorPortal({
         fallbackMode: data.fallbackMode ?? false,
         feeCard: data.feeCard ?? undefined,
         valuationCard: data.valuationCard ?? undefined,
+        routerDebug: data.routerDebug ?? undefined,
       };
       setMessages((prev) => [...prev, assistantMsg]);
 
@@ -474,6 +501,21 @@ export default function InvestorPortal({
               <AlertTriangle className="w-3.5 h-3.5" />
               Demo mode — connect API key for AI phrasing
             </div>
+          )}
+          {isDev && (
+            <button
+              onClick={() => setShowDebug((d) => !d)}
+              title="Toggle router debug panel"
+              className={clsx(
+                "flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono border transition-colors",
+                showDebug
+                  ? "bg-violet-950 border-violet-700 text-violet-300"
+                  : "border-base-border text-slate-600 hover:border-violet-800 hover:text-violet-400"
+              )}
+            >
+              <span>{"</>"}</span>
+              <span>debug</span>
+            </button>
           )}
           <div className="text-xs text-slate-600">Report date: 25 Jun 2026</div>
         </div>
@@ -632,6 +674,7 @@ export default function InvestorPortal({
               <MessageBubble
                 key={msg.id}
                 message={msg}
+                showDebug={showDebug}
                 onViewSources={(evidence) => {
                   setActiveEvidence(evidence);
                   setEvidencePanelOpen(true);
@@ -787,9 +830,11 @@ function PromptIcon({ prompt }: { prompt: string }) {
 
 function MessageBubble({
   message,
+  showDebug,
   onViewSources,
 }: {
   message: AssistantMessage;
+  showDebug: boolean;
   onViewSources: (ev: EvidenceItem[]) => void;
 }) {
   const isUser = message.role === "user";
@@ -826,6 +871,10 @@ function MessageBubble({
 
           {message.valuationCard && (
             <ValuationTimelineCard card={message.valuationCard} />
+          )}
+
+          {showDebug && message.routerDebug && (
+            <QueryDebugPanel debug={message.routerDebug} />
           )}
 
           {hasEvidence && (
@@ -984,6 +1033,135 @@ function FeeCard({ deal, reportingCurrency }: { deal: FeeCardDeal; reportingCurr
             </div>
           )}
         </>
+      )}
+    </div>
+  );
+}
+
+// ─── Query Debug Panel ────────────────────────────────────────────────────────
+
+const INTENT_COLORS: Record<string, string> = {
+  portfolio_overview: "bg-blue-950 text-blue-300 border-blue-800",
+  position_detail: "bg-indigo-950 text-indigo-300 border-indigo-800",
+  obligations: "bg-amber-950 text-amber-300 border-amber-800",
+  distributions: "bg-emerald-950 text-emerald-300 border-emerald-800",
+  fee_detail: "bg-orange-950 text-orange-300 border-orange-800",
+  valuation_history: "bg-violet-950 text-violet-300 border-violet-800",
+  account_statement: "bg-cyan-950 text-cyan-300 border-cyan-800",
+  glossary_or_metric_explanation: "bg-teal-950 text-teal-300 border-teal-800",
+  unsupported_or_ambiguous: "bg-red-950 text-red-300 border-red-800",
+  general_help: "bg-slate-800 text-slate-300 border-slate-700",
+};
+
+function ConfidenceBar({ value }: { value: number }) {
+  const pct = Math.round(value * 100);
+  const color =
+    pct >= 85 ? "bg-emerald-500" : pct >= 60 ? "bg-amber-500" : "bg-red-500";
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex-1 h-1.5 bg-base-border rounded-full overflow-hidden">
+        <div className={clsx("h-full rounded-full", color)} style={{ width: `${pct}%` }} />
+      </div>
+      <span className="text-[10px] tabular-nums text-slate-500">{pct}%</span>
+    </div>
+  );
+}
+
+function QueryDebugPanel({ debug }: { debug: RouterDebugData }) {
+  const [open, setOpen] = useState(false);
+  const intentColor = INTENT_COLORS[debug.intent] ?? "bg-slate-800 text-slate-300 border-slate-700";
+
+  return (
+    <div className="mt-3 rounded-lg border border-violet-900/50 bg-violet-950/20 overflow-hidden font-mono">
+      {/* Header row — always visible */}
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center gap-2 px-3 py-2 text-[10px] text-left hover:bg-violet-950/30 transition-colors"
+      >
+        <span className="text-violet-400">{"</>"}</span>
+        <span className="text-violet-300 font-semibold">Router Debug</span>
+        <span className={clsx("px-1.5 py-0.5 rounded border text-[10px]", intentColor)}>
+          {debug.intent}
+        </span>
+        <span className="text-slate-500 ml-1">
+          {Math.round(debug.confidence * 100)}% conf ·{" "}
+          {debug.evidenceCount} evidence
+        </span>
+        <ChevronDown
+          className={clsx("w-3 h-3 text-violet-500 ml-auto transition-transform", open && "rotate-180")}
+        />
+      </button>
+
+      {open && (
+        <div className="border-t border-violet-900/40 px-3 py-2.5 space-y-2.5 text-[11px]">
+          {/* Confidence */}
+          <div>
+            <div className="text-slate-500 mb-1">Confidence</div>
+            <ConfidenceBar value={debug.confidence} />
+          </div>
+
+          {/* Backend function */}
+          <div>
+            <div className="text-slate-500 mb-0.5">Backend function</div>
+            <div className="text-violet-300">{debug.backendFunction}</div>
+          </div>
+
+          {/* Matched keywords */}
+          {debug.matchedKeywords.length > 0 && (
+            <div>
+              <div className="text-slate-500 mb-1">Matched keywords</div>
+              <div className="flex flex-wrap gap-1">
+                {debug.matchedKeywords.map((kw) => (
+                  <span
+                    key={kw}
+                    className="px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-300"
+                  >
+                    {kw}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Entities */}
+          <div>
+            <div className="text-slate-500 mb-1">Entities</div>
+            <div className="space-y-0.5 pl-2 border-l border-slate-700">
+              {Object.entries(debug.entities).map(([k, v]) => {
+                if (v === null || (Array.isArray(v) && v.length === 0)) return null;
+                return (
+                  <div key={k} className="flex gap-2">
+                    <span className="text-slate-600 w-28 flex-none">{k}</span>
+                    <span className="text-slate-300">
+                      {Array.isArray(v)
+                        ? v.join(", ")
+                        : typeof v === "object"
+                        ? JSON.stringify(v)
+                        : String(v)}
+                    </span>
+                  </div>
+                );
+              })}
+              {Object.values(debug.entities).every((v) => v === null) && (
+                <span className="text-slate-600 italic">no entities extracted</span>
+              )}
+            </div>
+          </div>
+
+          {/* Clarification prompt */}
+          {debug.clarificationPrompt && (
+            <div>
+              <div className="text-slate-500 mb-0.5">Clarification prompt</div>
+              <div className="text-amber-400 italic">"{debug.clarificationPrompt}"</div>
+            </div>
+          )}
+
+          {/* Reasoning */}
+          <div>
+            <div className="text-slate-500 mb-0.5">Reasoning</div>
+            <div className="text-slate-400 leading-relaxed">{debug.reasoning}</div>
+          </div>
+        </div>
       )}
     </div>
   );

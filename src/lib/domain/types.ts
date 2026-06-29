@@ -276,14 +276,44 @@ export type QueryIntent =
   | "fee_detail"
   | "valuation_history"
   | "account_statement"
-  | "general_help";
+  | "glossary_or_metric_explanation"
+  | "unsupported_or_ambiguous"
+  | "general_help"; // kept for policy layer backward-compat
 
-export interface IntentResult {
-  intent: QueryIntent;
-  companyName?: string; // matched company name, if any
-  dealId?: string; // if message references a specific deal
-  ambiguous?: string[]; // if multiple companies matched
+export interface ExtractedEntities {
+  /** Resolved company name from the message (null if none mentioned or ambiguous) */
+  companyName: string | null;
+  /** Internal company_id for the resolved company */
+  companyId: string | null;
+  /** Deal round if mentioned, e.g. "Series A", "Seed" */
+  round: string | null;
+  /** Financial term if this is a glossary question, e.g. "MOIC", "carry" */
+  metricOrTerm: string | null;
+  /** Date range hint extracted from the message */
+  dateRange: { from: string | null; to: string | null } | null;
+  /** Company names when the query is ambiguous (multiple matches) */
+  ambiguousCompanies: string[] | null;
 }
+
+export interface RouterOutput {
+  intent: QueryIntent;
+  /** 0.0–1.0: how confident the router is in this routing decision */
+  confidence: number;
+  entities: ExtractedEntities;
+  /** Name of the deterministic backend function to call */
+  backendFunction: string;
+  /** Params the caller should forward to that function */
+  backendParams: Record<string, unknown>;
+  /** Non-null when the user should be prompted to clarify before proceeding */
+  clarificationPrompt: string | null;
+  /** Dev-readable explanation of why this intent was chosen */
+  reasoning: string;
+  /** Which regex keywords or patterns triggered this classification */
+  matchedKeywords: string[];
+}
+
+/** Backward-compat alias — consumers should migrate to RouterOutput */
+export type IntentResult = RouterOutput;
 
 // ─── Chat API types ───────────────────────────────────────────────────────────
 

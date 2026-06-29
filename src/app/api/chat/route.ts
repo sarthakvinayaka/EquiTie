@@ -17,7 +17,7 @@ import {
   buildSystemPrompt,
   buildUserTurn,
 } from "@/lib/prompt/formatter";
-import type { ChatRequest, ChatResponse, EvidenceItem, QueryIntent } from "@/lib/domain/types";
+import type { ChatRequest, ChatResponse, EvidenceItem, QueryIntent, RouterOutput } from "@/lib/domain/types";
 import { fmt, fmtMultiple, fmtNum } from "@/lib/domain/fx";
 
 const REPORT_DATE = "2026-06-25";
@@ -56,8 +56,26 @@ export async function POST(request: Request): Promise<NextResponse> {
     const investorContext = policyResult.investorContext!;
 
     // ── Intent classification ──────────────────────────────────────────────
-    const intentResult = classifyIntent(message, investorId, db);
-    const { intent, companyName, ambiguous } = intentResult;
+    const intentResult: RouterOutput = classifyIntent(message, investorId, db);
+    const { intent, entities, clarificationPrompt, confidence } = intentResult;
+    const companyName = entities.companyName ?? undefined;
+    const ambiguous = entities.ambiguousCompanies ?? undefined;
+
+    // ── Early exit: router requests clarification ──────────────────────────
+    // Handles ambiguous entities and unsupported topics before any computation
+    if (
+      (intent === "unsupported_or_ambiguous" || intent === "glossary_or_metric_explanation") &&
+      clarificationPrompt &&
+      intent === "unsupported_or_ambiguous"
+    ) {
+      return NextResponse.json({
+        answer: clarificationPrompt,
+        intent,
+        evidence: [],
+        fallbackMode: false,
+        routerDebug: buildRouterDebug(intentResult, 0),
+      });
+    }
 
     // ── Policy layer: post-intent checks ──────────────────────────────────
     // Runs: ambiguous entity → company in portfolio
@@ -77,6 +95,7 @@ export async function POST(request: Request): Promise<NextResponse> {
           evidence: [],
           fallbackMode: false,
           policyViolation: intentPolicy.violationCode,
+          routerDebug: buildRouterDebug(intentResult, 0),
         },
         { status: 200 }
       );
@@ -396,6 +415,18 @@ export async function POST(request: Request): Promise<NextResponse> {
           break;
         }
 
+        case "glossary_or_metric_explanation": {
+          const term = entities.metricOrTerm ?? companyName ?? "";
+          computedData = {
+            term,
+            context: "private_equity",
+            hint: "Explain this term clearly for an investor, including how it applies to private equity. Include the formula if relevant.",
+          };
+          break;
+        }
+
+        case "unsupported_or_ambiguous":
+        case "general_help":
         default:
           computedData = { message: "I can help with portfolio overview, individual positions, fees, obligations, distributions, valuation history, and your account statement." };
       }
@@ -451,11 +482,16 @@ export async function POST(request: Request): Promise<NextResponse> {
       answer = formatFallbackAnswer(intent, computedData, profile);
     }
 
-    const response: ChatResponse & { feeCard?: unknown; valuationCard?: unknown } = {
+    const response: ChatResponse & {
+      feeCard?: unknown;
+      valuationCard?: unknown;
+      routerDebug?: unknown;
+    } = {
       answer,
       intent,
       evidence,
       fallbackMode,
+      routerDebug: buildRouterDebug(intentResult, evidence.length),
     };
 
     // Attach structured cards when present
@@ -472,6 +508,22 @@ export async function POST(request: Request): Promise<NextResponse> {
       err instanceof Error ? err.message : "An unexpected error occurred";
     return NextResponse.json({ error: message }, { status: 500 });
   }
+}
+
+// ─── Router debug payload ─────────────────────────────────────────────────────
+
+function buildRouterDebug(r: RouterOutput, evidenceCount: number) {
+  return {
+    intent: r.intent,
+    confidence: r.confidence,
+    entities: r.entities,
+    backendFunction: r.backendFunction,
+    backendParams: r.backendParams,
+    clarificationPrompt: r.clarificationPrompt,
+    reasoning: r.reasoning,
+    matchedKeywords: r.matchedKeywords,
+    evidenceCount,
+  };
 }
 
 // ─── Valuation card builder for UI ────────────────────────────────────────────

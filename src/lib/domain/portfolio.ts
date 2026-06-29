@@ -26,9 +26,12 @@ export function getPortfolioOverview(
   let pendingPositions = 0;
 
   for (const allocId of allocationIds) {
-    const alloc = db.allocations.get(allocId)!;
-    const deal = db.deals.get(alloc.deal_id)!;
-    const company = db.companies.get(deal.company_id)!;
+    const alloc = db.allocations.get(allocId);
+    if (!alloc) continue;
+    const deal = db.deals.get(alloc.deal_id);
+    if (!deal) continue;
+    const company = db.companies.get(deal.company_id);
+    if (!company) continue;
     const dealCcy = alloc.deal_currency;
 
     const commitment = parseFloat(alloc.commitment_amount);

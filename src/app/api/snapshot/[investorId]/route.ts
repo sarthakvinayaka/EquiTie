@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getDatabase } from "@/lib/data/loader";
-import { validateInvestor } from "@/lib/policy/access";
+import { resolveInvestorContext } from "@/lib/policy/context";
 import { getPortfolioOverview } from "@/lib/domain/portfolio";
 import { getObligations } from "@/lib/domain/obligations";
 import { buildStarterPrompts } from "@/lib/query/router";
@@ -14,9 +14,9 @@ export async function GET(
     const { investorId } = await params;
     const db = getDatabase();
 
-    const validation = validateInvestor(investorId, db);
-    if (!validation.valid) {
-      return NextResponse.json({ error: validation.reason }, { status: 404 });
+    const investorContext = resolveInvestorContext(investorId, db);
+    if (!investorContext) {
+      return NextResponse.json({ error: "Investor not found" }, { status: 404 });
     }
 
     const investor = db.investors.get(investorId)!;

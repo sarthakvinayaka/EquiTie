@@ -117,7 +117,7 @@ export function getDatabase(): Database {
     statementLines: new Map(),
     fxRates: new Map(fxRates.map((r) => [r.currency, parseFloat(r.to_usd)])),
     parseIssues,
-    validationReport: null as unknown as ValidationReport, // filled below
+    validationReport: { joinChecks: [], anomalies: [], generatedAt: "" },
     rowRefs,
     rawRows,
   };

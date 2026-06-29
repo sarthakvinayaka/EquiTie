@@ -52,6 +52,37 @@ export async function GET(
     const upcomingCount =
       obligations.capitalCalls.length + obligations.fees.length;
 
+    // ── Demo-flow enrichment ──────────────────────────────────────────────────
+    const allocIds = db.allocationsByInvestor.get(investorId) ?? [];
+
+    // Build company → rounds map for demo context
+    const companyRoundsMap = new Map<string, { name: string; rounds: string[]; hasFeeDiscount: boolean }>();
+    for (const allocId of allocIds) {
+      const alloc = db.allocations.get(allocId);
+      if (!alloc) continue;
+      const deal = db.deals.get(alloc.deal_id);
+      if (!deal) continue;
+      const existing = companyRoundsMap.get(deal.company_id) ?? { name: deal.company_name, rounds: [], hasFeeDiscount: false };
+      if (!existing.rounds.includes(deal.round)) existing.rounds.push(deal.round);
+      if (alloc.fee_discount === "Yes") existing.hasFeeDiscount = true;
+      companyRoundsMap.set(deal.company_id, existing);
+    }
+
+    const allCompanyRounds = [...companyRoundsMap.values()];
+    const multiRoundEntry = allCompanyRounds
+      .filter((c) => c.rounds.length >= 2)
+      .sort((a, b) => b.rounds.length - a.rounds.length)[0] ?? null;
+
+    const hasDistributions = (db.distributionsByInvestor.get(investorId) ?? []).length > 0;
+    const hasFeeDiscount = allCompanyRounds.some((c) => c.hasFeeDiscount);
+
+    const personalizationTier: "Emerging" | "Established" | "Experienced" =
+      investor.tech_savviness === "High"
+        ? "Experienced"
+        : investor.tech_savviness === "Medium"
+        ? "Established"
+        : "Emerging";
+
     return NextResponse.json({
       investor: {
         id: investor.investor_id,
@@ -85,6 +116,13 @@ export async function GET(
           obligations.totalObligationsRpt,
           overview.reportingCurrency
         ),
+        // Demo-flow fields
+        multiRoundCompany: multiRoundEntry
+          ? { name: multiRoundEntry.name, roundCount: multiRoundEntry.rounds.length, rounds: multiRoundEntry.rounds }
+          : null,
+        hasDistributions,
+        hasFeeDiscount,
+        personalizationTier,
       },
       starterPrompts,
     });

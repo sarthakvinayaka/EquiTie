@@ -8,7 +8,6 @@ import {
   AlertTriangle,
   TrendingUp,
   TrendingDown,
-  Minus,
   Shield,
   ShieldAlert,
   LayoutGrid,
@@ -20,6 +19,12 @@ import {
   Info,
   ArrowUpRight,
   Activity,
+  Database,
+  Calendar,
+  Users,
+  ChevronsUpDown,
+  Layers,
+  Percent,
 } from "lucide-react";
 import clsx from "clsx";
 import type { ChatMessage, EvidenceItem, QueryIntent } from "@/lib/domain/types";
@@ -31,6 +36,12 @@ interface Investor {
   name: string;
   type: string;
   reportingCurrency: string;
+}
+
+interface MultiRoundCompany {
+  name: string;
+  roundCount: number;
+  rounds: string[];
 }
 
 interface SnapshotData {
@@ -72,6 +83,10 @@ interface SnapshotData {
     hasOverdueObligations: boolean;
     upcomingObligationsCount: number;
     totalObligations: string;
+    multiRoundCompany: MultiRoundCompany | null;
+    hasDistributions: boolean;
+    hasFeeDiscount: boolean;
+    personalizationTier: "Emerging" | "Established" | "Experienced";
   };
   starterPrompts: string[];
 }
@@ -331,6 +346,27 @@ const INTENT_LABELS: Record<string, string> = {
   general_help: "General",
 };
 
+const TIER_CONFIG: Record<
+  "Emerging" | "Established" | "Experienced",
+  { label: string; color: string; description: string }
+> = {
+  Emerging: {
+    label: "Emerging Investor",
+    color: "text-blue-400 bg-blue-950/60 border-blue-900/50",
+    description: "Responses use plain language and explain key terms",
+  },
+  Established: {
+    label: "Established Investor",
+    color: "text-amber-400 bg-amber-950/60 border-amber-900/50",
+    description: "Responses assume familiarity with private equity concepts",
+  },
+  Experienced: {
+    label: "Experienced Investor",
+    color: "text-emerald-400 bg-emerald-950/60 border-emerald-900/50",
+    description: "Responses use technical language with full calculation detail",
+  },
+};
+
 // ─── Logo mark ─────────────────────────────────────────────────────────────────
 
 function LogoMark({ className }: { className?: string }) {
@@ -341,6 +377,23 @@ function LogoMark({ className }: { className?: string }) {
       <rect x="2" y="13" width="9" height="9" rx="1.5" fill="currentColor" opacity="0.5" />
       <rect x="13" y="13" width="9" height="9" rx="1.5" fill="currentColor" opacity="0.25" />
     </svg>
+  );
+}
+
+// ─── Personalization badge ────────────────────────────────────────────────────
+
+function PersonalizationBadge({ tier }: { tier: "Emerging" | "Established" | "Experienced" }) {
+  const cfg = TIER_CONFIG[tier];
+  return (
+    <div className="relative group">
+      <span className={clsx("text-[9px] font-medium px-1.5 py-0.5 rounded border cursor-default", cfg.color)}>
+        {tier}
+      </span>
+      <div className="absolute right-0 top-full mt-1.5 w-48 p-2 rounded-lg bg-base-elevated border border-base-border-strong text-[10px] text-slate-400 leading-relaxed z-30 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity shadow-xl">
+        <p className="font-medium text-slate-300 mb-0.5">{cfg.label}</p>
+        <p>{cfg.description}</p>
+      </div>
+    </div>
   );
 }
 
@@ -361,8 +414,8 @@ export default function InvestorPortal({
   const [isThinking, setIsThinking] = useState(false);
   const [evidencePanelOpen, setEvidencePanelOpen] = useState(false);
   const [activeEvidence, setActiveEvidence] = useState<EvidenceItem[]>([]);
-  const [selectorOpen, setSelectorOpen] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
+  const [evaluatorOpen, setEvaluatorOpen] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const hasFallbackMode = messages.some((m) => m.fallbackMode);
@@ -460,9 +513,7 @@ export default function InvestorPortal({
     <div className="flex flex-col h-screen bg-base">
 
       {/* ── Top bar ───────────────────────────────────────────────────────────── */}
-      <header className="flex-none h-13 flex items-center justify-between px-5 border-b border-base-border bg-base-surface" style={{ height: "52px" }}>
-
-        {/* Brand */}
+      <header className="flex-none flex items-center justify-between px-5 border-b border-base-border bg-base-surface" style={{ height: "52px" }}>
         <div className="flex items-center gap-5">
           <div className="flex items-center gap-2.5">
             <LogoMark className="w-5 h-5 text-accent" />
@@ -472,12 +523,16 @@ export default function InvestorPortal({
           </div>
         </div>
 
-        {/* Right controls */}
         <div className="flex items-center gap-3">
+          {/* Demo badge — always visible */}
+          <div className="flex items-center gap-1.5 text-[10px] text-accent/70 bg-accent-subtle border border-accent-muted/30 px-2 py-1 rounded-md font-medium tracking-wide uppercase">
+            Demo
+          </div>
+
           {hasFallbackMode && (
             <div className="flex items-center gap-1.5 text-amber-500/80 text-[11px] bg-amber-950/30 border border-amber-900/40 px-2.5 py-1 rounded-md">
               <AlertTriangle className="w-3 h-3" />
-              Demo mode
+              Fallback
             </div>
           )}
 
@@ -485,56 +540,85 @@ export default function InvestorPortal({
             <button
               onClick={() => setShowDebug((d) => !d)}
               className={clsx(
-                "flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono border transition-colors",
+                "px-2 py-1 rounded text-[10px] font-mono border transition-colors",
                 showDebug
                   ? "bg-violet-950/50 border-violet-700/60 text-violet-300"
-                  : "border-base-border text-slate-700 hover:border-violet-800/50 hover:text-violet-500"
+                  : "border-base-border text-slate-700 hover:text-violet-500"
               )}
             >
               {"{/}"}
             </button>
           )}
 
-          <span className="text-[11px] text-slate-700 tabular-nums">25 Jun 2026</span>
+          <div className="flex items-center gap-1.5 text-[11px] text-slate-600">
+            <Calendar className="w-3 h-3" />
+            <span className="tabular-nums">25 Jun 2026</span>
+          </div>
 
-          {/* Investor selector */}
+          {/* Evaluator investor switcher */}
           <div className="relative">
             <button
-              onClick={() => setSelectorOpen((o) => !o)}
-              className="flex items-center gap-2 pl-2 pr-2.5 py-1.5 rounded-lg border border-base-border hover:border-base-border-strong hover:bg-base-elevated transition-all text-sm"
+              onClick={() => setEvaluatorOpen((o) => !o)}
+              className="flex items-center gap-2 pl-2 pr-2.5 py-1.5 rounded-lg border border-base-border hover:border-base-border-strong hover:bg-base-elevated transition-all"
             >
               <div className="w-5 h-5 rounded-full bg-accent/20 flex items-center justify-center flex-none">
                 <span className="text-accent text-[10px] font-semibold">
                   {currentInvestor?.name.charAt(0) ?? "?"}
                 </span>
               </div>
-              <span className="text-slate-300 text-xs font-medium max-w-[140px] truncate">
-                {currentInvestor?.name ?? "Select investor"}
-              </span>
-              <ChevronDown className="w-3 h-3 text-slate-600 flex-none" />
+              <div className="text-left">
+                <div className="text-slate-300 text-xs font-medium max-w-[130px] truncate leading-tight">
+                  {currentInvestor?.name ?? "Select investor"}
+                </div>
+                <div className="text-slate-700 text-[9px] tabular-nums font-mono leading-tight">{selectedInvestorId}</div>
+              </div>
+              <ChevronsUpDown className="w-3 h-3 text-slate-600 flex-none" />
             </button>
 
-            {selectorOpen && (
-              <div className="absolute top-full right-0 mt-1.5 w-64 bg-base-elevated border border-base-border-strong rounded-xl shadow-xl z-50 overflow-hidden animate-fade-in">
-                <div className="px-3 pt-3 pb-1">
-                  <p className="text-[10px] uppercase tracking-widest text-slate-600 mb-2">Switch investor</p>
+            {evaluatorOpen && (
+              <div className="absolute top-full right-0 mt-1.5 w-72 bg-base-elevated border border-base-border-strong rounded-xl shadow-2xl z-50 overflow-hidden animate-fade-in">
+                <div className="px-3 pt-3 pb-2 border-b border-base-border">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Users className="w-3 h-3 text-slate-500" />
+                    <p className="text-[10px] uppercase tracking-widest text-slate-500 font-medium">Evaluator Access</p>
+                  </div>
+                  <p className="text-[10px] text-slate-700 leading-snug">
+                    Switch investor to test different portfolio scenarios. Each ID fully scopes data — investor isolation is enforced.
+                  </p>
                 </div>
-                <div className="px-2 pb-2">
+                <div className="px-2 py-2 max-h-72 overflow-y-auto">
                   {investors.map((inv) => (
                     <button
                       key={inv.id}
-                      onClick={() => { setSelectedInvestorId(inv.id); setSelectorOpen(false); }}
+                      onClick={() => { setSelectedInvestorId(inv.id); setEvaluatorOpen(false); }}
                       className={clsx(
-                        "w-full flex items-center justify-between px-3 py-2 rounded-lg text-left text-xs transition-colors",
+                        "w-full flex items-center justify-between px-3 py-2 rounded-lg text-left text-xs transition-colors mb-0.5",
                         inv.id === selectedInvestorId
                           ? "bg-accent-subtle text-accent border border-accent/20"
                           : "text-slate-400 hover:bg-base-surface hover:text-slate-200"
                       )}
                     >
-                      <span className="font-medium truncate">{inv.name}</span>
-                      <span className="text-slate-600 text-[10px] ml-2 flex-none">{inv.reportingCurrency}</span>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className={clsx(
+                          "w-4 h-4 rounded flex items-center justify-center text-[9px] font-bold flex-none",
+                          inv.id === selectedInvestorId ? "bg-accent/20 text-accent" : "bg-base-border text-slate-600"
+                        )}>
+                          {inv.name.charAt(0)}
+                        </div>
+                        <span className="font-medium truncate">{inv.name}</span>
+                      </div>
+                      <div className="flex items-center gap-2 flex-none ml-2">
+                        <span className="text-slate-700 text-[9px] font-mono">{inv.id}</span>
+                        <span className="text-slate-700 text-[9px]">{inv.reportingCurrency}</span>
+                      </div>
                     </button>
                   ))}
+                </div>
+                <div className="px-3 py-2 border-t border-base-border bg-base-surface">
+                  <p className="text-[10px] text-slate-700 flex items-center gap-1.5">
+                    <Database className="w-3 h-3 flex-none" />
+                    All answers grounded in provided dataset · 25 Jun 2026
+                  </p>
                 </div>
               </div>
             )}
@@ -560,34 +644,49 @@ export default function InvestorPortal({
             <>
               {/* Identity block */}
               <div className="px-5 pt-5 pb-4 border-b border-base-border">
-                <div className="flex items-start justify-between mb-4">
-                  <div className="w-11 h-11 rounded-full bg-base-elevated border border-base-border flex items-center justify-center">
-                    <span className="font-display text-accent text-lg leading-none">
+                {/* ID + KYC + tier row */}
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[9px] font-mono text-slate-700 bg-base-elevated border border-base-border px-1.5 py-0.5 rounded tracking-wider">
+                      {snapshot.investor.id}
+                    </span>
+                    {snapshot.investor.kycStatus === "Verified" ? (
+                      <span className="flex items-center gap-0.5 text-emerald-500/80 text-[10px]">
+                        <Shield className="w-3 h-3" />
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-0.5 text-amber-500/80 text-[10px]">
+                        <ShieldAlert className="w-3 h-3" />
+                      </span>
+                    )}
+                  </div>
+                  <PersonalizationBadge tier={snapshot.snapshot.personalizationTier} />
+                </div>
+
+                {/* Avatar + name */}
+                <div className="flex items-start gap-3 mb-3">
+                  <div className="w-10 h-10 rounded-full bg-base-elevated border border-base-border flex items-center justify-center flex-none">
+                    <span className="font-display text-accent text-base leading-none">
                       {snapshot.investor.name.charAt(0)}
                     </span>
                   </div>
-                  <div className="flex items-center gap-1.5 mt-0.5">
-                    {snapshot.investor.kycStatus === "Verified" ? (
-                      <div className="flex items-center gap-1 text-emerald-500 text-[10px]">
-                        <Shield className="w-3 h-3" />
-                        <span>KYC Verified</span>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-1 text-amber-500 text-[10px]">
-                        <ShieldAlert className="w-3 h-3" />
-                        <span>KYC Pending</span>
-                      </div>
-                    )}
+                  <div className="min-w-0">
+                    <div className="font-display text-slate-100 text-sm leading-snug">
+                      {snapshot.investor.name}
+                    </div>
+                    <div className="text-slate-500 text-[11px] mt-0.5">
+                      {snapshot.investor.type} · {snapshot.investor.country}
+                    </div>
                   </div>
                 </div>
 
-                <div className="font-display text-slate-100 text-base leading-tight mb-1">
-                  {snapshot.investor.name}
+                {/* Report date bar */}
+                <div className="flex items-center gap-1.5 text-[10px] text-slate-700 bg-base-elevated border border-base-border rounded-md px-2.5 py-1.5">
+                  <Calendar className="w-3 h-3 flex-none text-slate-600" />
+                  <span>Data as at <span className="text-slate-500 tabular-nums">25 Jun 2026</span></span>
+                  <span className="mx-1 text-slate-800">·</span>
+                  <span className="text-slate-600">{snapshot.investor.reportingCurrency}</span>
                 </div>
-                <div className="text-slate-500 text-xs">
-                  {snapshot.investor.type} · {snapshot.investor.country}
-                </div>
-                <div className="text-[10px] text-slate-700 mt-1">{snapshot.investor.reportingCurrency} reporting</div>
               </div>
 
               {/* Portfolio KPIs */}
@@ -598,7 +697,7 @@ export default function InvestorPortal({
                   <div className="font-display text-slate-100 tabular-nums leading-none" style={{ fontSize: "1.5rem" }}>
                     {snapshot.snapshot.totalValue}
                   </div>
-                  <div className="text-[10px] text-slate-600 mt-1">total value</div>
+                  <div className="text-[10px] text-slate-600 mt-1">total value · {snapshot.snapshot.reportingCurrency}</div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3 mb-3">
@@ -614,7 +713,7 @@ export default function InvestorPortal({
 
                 <div className="grid grid-cols-2 gap-3 mb-3">
                   <div>
-                    <div className="text-[10px] text-slate-600 uppercase tracking-wider mb-0.5">Active</div>
+                    <div className="text-[10px] text-slate-600 uppercase tracking-wider mb-0.5">Active positions</div>
                     <div className="text-sm text-slate-300 font-medium">{snapshot.snapshot.activePositions}</div>
                   </div>
                   {snapshot.snapshot.pendingPositions > 0 && (
@@ -625,8 +724,39 @@ export default function InvestorPortal({
                   )}
                 </div>
 
+                {/* Portfolio signal chips */}
+                <div className="flex flex-wrap gap-1.5 mt-1">
+                  {snapshot.snapshot.multiRoundCompany && (
+                    <button
+                      onClick={() => handleSend(`Walk me through my ${snapshot.snapshot.multiRoundCompany!.name} positions — I'm invested across ${snapshot.snapshot.multiRoundCompany!.roundCount} rounds`)}
+                      className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-base-elevated border border-base-border text-slate-500 hover:border-base-border-strong hover:text-slate-300 transition-colors"
+                    >
+                      <Layers className="w-2.5 h-2.5" />
+                      {snapshot.snapshot.multiRoundCompany.roundCount} rounds · {snapshot.snapshot.multiRoundCompany.name}
+                    </button>
+                  )}
+                  {snapshot.snapshot.hasFeeDiscount && (
+                    <button
+                      onClick={() => handleSend("Do I have any fee discounts, and how much am I saving vs. standard rates?")}
+                      className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-accent-subtle border border-accent-muted/30 text-accent/70 hover:text-accent transition-colors"
+                    >
+                      <Percent className="w-2.5 h-2.5" />
+                      Fee discount
+                    </button>
+                  )}
+                  {snapshot.snapshot.hasDistributions && (
+                    <button
+                      onClick={() => handleSend("What have I actually received in cash — distributions and exit proceeds?")}
+                      className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-emerald-950/40 border border-emerald-900/30 text-emerald-500/70 hover:text-emerald-400 transition-colors"
+                    >
+                      <TrendingUp className="w-2.5 h-2.5" />
+                      Distributions
+                    </button>
+                  )}
+                </div>
+
                 {snapshot.snapshot.topSectors.length > 0 && (
-                  <div>
+                  <div className="mt-3">
                     <div className="text-[10px] text-slate-600 uppercase tracking-wider mb-1.5">Sectors</div>
                     <div className="flex flex-wrap gap-1">
                       {snapshot.snapshot.topSectors.map((s) => (
@@ -649,7 +779,7 @@ export default function InvestorPortal({
                 )}
               </div>
 
-              {/* Holdings */}
+              {/* Holdings list */}
               <div className="flex-1 overflow-y-auto">
                 <div className="px-5 pt-4 pb-2">
                   <p className="card-section-label">Holdings</p>
@@ -680,15 +810,18 @@ export default function InvestorPortal({
           )}
         </aside>
 
-        {/* ── Main chat ─────────────────────────────────────────────────────── */}
+        {/* ── Main chat area ─────────────────────────────────────────────────── */}
         <main className="flex-1 flex flex-col overflow-hidden bg-base">
-
-          {/* Messages */}
           <div className="flex-1 overflow-y-auto py-6 space-y-3">
             {messages.length === 0 && !snapshotLoading && snapshot && (
               <EmptyState
                 investorName={snapshot.investor.name}
                 starterPrompts={snapshot.starterPrompts}
+                personalizationTier={snapshot.snapshot.personalizationTier}
+                multiRoundCompany={snapshot.snapshot.multiRoundCompany}
+                hasDistributions={snapshot.snapshot.hasDistributions}
+                hasFeeDiscount={snapshot.snapshot.hasFeeDiscount}
+                reportingCurrency={snapshot.snapshot.reportingCurrency}
                 onPrompt={handleSend}
               />
             )}
@@ -722,7 +855,7 @@ export default function InvestorPortal({
                   placeholder="Ask about your portfolio, a position, fees, obligations, or distributions…"
                   rows={1}
                   disabled={isThinking}
-                  className="w-full bg-base-elevated border border-base-border rounded-xl px-4 py-3 text-slate-200 text-sm placeholder-slate-700 resize-none focus:outline-none focus:border-base-border-strong focus:bg-base-elevated transition-all"
+                  className="w-full bg-base-elevated border border-base-border rounded-xl px-4 py-3 text-slate-200 text-sm placeholder-slate-700 resize-none focus:outline-none focus:border-base-border-strong transition-all"
                   style={{ minHeight: "48px", maxHeight: "120px" }}
                   onInput={(e) => {
                     const t = e.target as HTMLTextAreaElement;
@@ -743,13 +876,18 @@ export default function InvestorPortal({
                 )}
               </button>
             </div>
-            <p className="text-center mt-2 text-[10px] text-slate-700">
-              EquiTie AI · Data as of 25 Jun 2026 · Not investment advice
-            </p>
+            <div className="flex items-center justify-center gap-2 mt-2 text-[10px] text-slate-700">
+              <Database className="w-3 h-3" />
+              <span>Answers grounded in provided dataset only</span>
+              <span className="text-slate-800">·</span>
+              <span className="tabular-nums">25 Jun 2026</span>
+              <span className="text-slate-800">·</span>
+              <span>Not investment advice</span>
+            </div>
           </div>
         </main>
 
-        {/* ── Evidence panel ────────────────────────────────────────────────── */}
+        {/* ── Evidence panel ─────────────────────────────────────────────────── */}
         {evidencePanelOpen && (
           <aside className="flex-none w-80 border-l border-base-border flex flex-col overflow-hidden bg-base-surface animate-slide-in-right">
             <div className="flex-none flex items-center justify-between px-4 py-3 border-b border-base-border">
@@ -767,13 +905,9 @@ export default function InvestorPortal({
                 <X className="w-3.5 h-3.5" />
               </button>
             </div>
-
             <div className="flex-1 overflow-y-auto p-3 space-y-2">
               {activeEvidence.map((ev, idx) => (
-                <div
-                  key={`${ev.id}-${idx}`}
-                  className="p-3 rounded-lg border border-base-border bg-base-elevated hover:border-base-border-strong transition-colors"
-                >
+                <div key={`${ev.id}-${idx}`} className="p-3 rounded-lg border border-base-border bg-base-elevated hover:border-base-border-strong transition-colors">
                   <div className="flex items-start justify-between gap-2 mb-2">
                     <SourceTypePill type={ev.sourceType} />
                     <span className="text-slate-700 text-[10px] font-mono">{ev.id}</span>
@@ -804,12 +938,13 @@ function SidebarSkeleton() {
   return (
     <div className="p-5 space-y-4 animate-pulse">
       <div className="flex items-center gap-3">
-        <div className="w-11 h-11 rounded-full bg-base-elevated" />
+        <div className="w-10 h-10 rounded-full bg-base-elevated" />
         <div className="flex-1 space-y-1.5">
           <div className="h-3 bg-base-elevated rounded w-3/4" />
           <div className="h-2.5 bg-base-elevated rounded w-1/2" />
         </div>
       </div>
+      <div className="h-6 bg-base-elevated rounded w-full" />
       <div className="space-y-2 pt-2">
         <div className="h-7 bg-base-elevated rounded w-2/3" />
         <div className="grid grid-cols-2 gap-2">
@@ -826,13 +961,41 @@ function SidebarSkeleton() {
 
 // ─── Empty state ──────────────────────────────────────────────────────────────
 
+const PROMPT_ICONS: Array<[RegExp, React.ComponentType<{ className?: string }>, string]> = [
+  [/overview|portfolio/i, LayoutGrid, "Portfolio"],
+  [/walk me through|rounds|round|series/i, Layers, "Multi-round"],
+  [/capital call|obligation|owe|due/i, AlertTriangle, "Obligations"],
+  [/distribut|exit proceed|received/i, TrendingUp, "Distributions"],
+  [/fee|discount|saving/i, Percent, "Fees"],
+  [/valuat|mark|how has.*valued/i, Activity, "Valuation"],
+  [/statement|cash movement|cash in/i, FileText, "Statement"],
+  [/position|tell me about/i, LayoutGrid, "Position"],
+];
+
+function promptIcon(prompt: string): { Icon: React.ComponentType<{ className?: string }>; label: string } {
+  for (const [re, Icon, label] of PROMPT_ICONS) {
+    if (re.test(prompt)) return { Icon, label };
+  }
+  return { Icon: Activity, label: "Query" };
+}
+
 function EmptyState({
   investorName,
   starterPrompts,
+  personalizationTier,
+  multiRoundCompany,
+  hasDistributions,
+  hasFeeDiscount,
+  reportingCurrency,
   onPrompt,
 }: {
   investorName: string;
   starterPrompts: string[];
+  personalizationTier: "Emerging" | "Established" | "Experienced";
+  multiRoundCompany: MultiRoundCompany | null;
+  hasDistributions: boolean;
+  hasFeeDiscount: boolean;
+  reportingCurrency: string;
   onPrompt: (text: string) => void;
 }) {
   const firstName = investorName.split(" ")[0];
@@ -840,50 +1003,86 @@ function EmptyState({
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
 
   return (
-    <div className="flex flex-col justify-center min-h-[60vh] px-8 max-w-4xl mx-auto w-full">
-      <div className="mb-8">
+    <div className="flex flex-col justify-start pt-10 px-8 max-w-4xl mx-auto w-full">
+      {/* Greeting */}
+      <div className="mb-7">
         <p className="text-[10px] uppercase tracking-widest text-slate-700 mb-3 font-medium">
-          EquiTie Investor Assistant
+          EquiTie Investor Assistant · Demo
         </p>
         <h1 className="font-display text-3xl text-slate-100 leading-tight mb-3">
           {greeting}, {firstName}.
         </h1>
-        <p className="text-slate-500 text-sm leading-relaxed max-w-md">
-          Ask me anything about your portfolio — current value, positions, fees, upcoming obligations, or the story behind any investment.
+        <p className="text-slate-500 text-sm leading-relaxed max-w-lg mb-4">
+          Ask about your portfolio, individual positions, fees, distributions, upcoming obligations, or valuation history.
         </p>
+
+        {/* Personalization + portfolio signal cues */}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className={clsx(
+            "flex items-center gap-1.5 text-[10px] px-2 py-1 rounded-md border font-medium",
+            TIER_CONFIG[personalizationTier].color
+          )}>
+            Responses tailored for: {TIER_CONFIG[personalizationTier].label}
+          </div>
+          {multiRoundCompany && (
+            <div className="flex items-center gap-1 text-[10px] px-2 py-1 rounded-md border border-base-border bg-base-elevated text-slate-500">
+              <Layers className="w-3 h-3" />
+              {multiRoundCompany.name} · {multiRoundCompany.roundCount} rounds
+            </div>
+          )}
+          {hasFeeDiscount && (
+            <div className="flex items-center gap-1 text-[10px] px-2 py-1 rounded-md border border-accent-muted/30 bg-accent-subtle text-accent/70">
+              <Percent className="w-3 h-3" />
+              Fee discount active
+            </div>
+          )}
+          {hasDistributions && (
+            <div className="flex items-center gap-1 text-[10px] px-2 py-1 rounded-md border border-emerald-900/30 bg-emerald-950/30 text-emerald-500/70">
+              <TrendingUp className="w-3 h-3" />
+              Cash distributions received
+            </div>
+          )}
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-2xl">
-        {starterPrompts.map((prompt) => (
-          <button
-            key={prompt}
-            onClick={() => onPrompt(prompt)}
-            className="group text-left p-4 rounded-xl border border-base-border bg-base-surface hover:border-base-border-strong hover:bg-base-elevated transition-all"
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex items-start gap-2.5">
-                <PromptIcon prompt={prompt} />
-                <span className="text-slate-400 text-sm group-hover:text-slate-200 transition-colors leading-snug">
-                  {prompt}
+      {/* Starter prompts — all 6-8 */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-3xl mb-6">
+        {starterPrompts.map((prompt) => {
+          const { Icon, label } = promptIcon(prompt);
+          return (
+            <button
+              key={prompt}
+              onClick={() => onPrompt(prompt)}
+              className="group text-left p-4 rounded-xl border border-base-border bg-base-surface hover:border-base-border-strong hover:bg-base-elevated transition-all"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-2.5 min-w-0">
+                  <Icon className="w-4 h-4 text-slate-600 group-hover:text-slate-500 flex-none mt-0.5 transition-colors" />
+                  <span className="text-slate-400 text-sm group-hover:text-slate-200 transition-colors leading-snug">
+                    {prompt}
+                  </span>
+                </div>
+                <ArrowUpRight className="w-3.5 h-3.5 text-slate-700 group-hover:text-accent transition-colors flex-none mt-0.5 shrink-0" />
+              </div>
+              <div className="mt-2 pl-[26px]">
+                <span className="text-[9px] uppercase tracking-wider text-slate-700 group-hover:text-slate-600 transition-colors">
+                  {label}
                 </span>
               </div>
-              <ArrowUpRight className="w-3.5 h-3.5 text-slate-700 group-hover:text-accent transition-colors flex-none mt-0.5" />
-            </div>
-          </button>
-        ))}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Dataset grounding note */}
+      <div className="flex items-center gap-2 text-[10px] text-slate-700 max-w-3xl">
+        <Database className="w-3 h-3 flex-none text-slate-600" />
+        <span>
+          All answers grounded in the provided dataset · Figures in {reportingCurrency} (reporting currency) · Data as at 25 Jun 2026 · Not investment advice
+        </span>
       </div>
     </div>
   );
-}
-
-function PromptIcon({ prompt }: { prompt: string }) {
-  const lower = prompt.toLowerCase();
-  const cls = "w-4 h-4 flex-none mt-0.5";
-  if (/overview|portfolio/.test(lower)) return <LayoutGrid className={clsx(cls, "text-slate-500")} />;
-  if (/statement|account/.test(lower)) return <FileText className={clsx(cls, "text-slate-500")} />;
-  if (/obligation|fee|call/.test(lower)) return <AlertTriangle className={clsx(cls, "text-amber-600")} />;
-  if (/distribut|exit/.test(lower)) return <TrendingUp className={clsx(cls, "text-emerald-600")} />;
-  return <Activity className={clsx(cls, "text-slate-500")} />;
 }
 
 // ─── Message bubble / response card ───────────────────────────────────────────
@@ -903,7 +1102,6 @@ function MessageBubble({
   const hasEvidence = !isUser && (message.evidence?.length ?? 0) > 0;
   const ao = message.answerObject;
 
-  // ── User message ──────────────────────────────────────────────────────────
   if (isUser) {
     return (
       <div className="flex justify-end px-6">
@@ -914,7 +1112,6 @@ function MessageBubble({
     );
   }
 
-  // ── Error state ───────────────────────────────────────────────────────────
   if (message.error) {
     return (
       <div className="px-6">
@@ -928,12 +1125,11 @@ function MessageBubble({
 
   const intentLabel = message.intent ? INTENT_LABELS[message.intent] ?? message.intent : "Response";
 
-  // ── Response card ─────────────────────────────────────────────────────────
   return (
     <div className="px-6 animate-slide-up">
       <div className="max-w-4xl mx-auto response-card">
 
-        {/* Card header — intent label */}
+        {/* Card header */}
         <div className="response-card-header">
           <div className="flex items-center gap-2">
             <span className="w-1.5 h-1.5 rounded-full bg-accent flex-none" />
@@ -942,29 +1138,35 @@ function MessageBubble({
             </span>
             {message.fallbackMode && (
               <span className="text-[10px] text-amber-600/80 border border-amber-900/30 bg-amber-950/20 px-1.5 py-0.5 rounded">
-                demo mode
+                fallback
               </span>
             )}
           </div>
-          <span className="text-[10px] text-slate-700">EquiTie AI</span>
+          <div className="flex items-center gap-2">
+            {ao?.personalizationLevel && (
+              <span className={clsx(
+                "text-[9px] px-1.5 py-0.5 rounded border",
+                TIER_CONFIG[ao.personalizationLevel].color
+              )}>
+                {ao.personalizationLevel}
+              </span>
+            )}
+            <span className="text-[10px] text-slate-700">EquiTie AI</span>
+          </div>
         </div>
 
         {/* Card body */}
         <div className="response-card-body">
-
-          {/* Title */}
           {ao?.title && (
             <h3 className="text-slate-100 font-semibold text-base mb-3">{ao.title}</h3>
           )}
 
-          {/* Concise answer — lead */}
           {ao?.conciseAnswer && (
             <p className="text-slate-300 text-sm leading-relaxed font-medium mb-4 pb-4 border-b border-base-border">
               {ao.conciseAnswer}
             </p>
           )}
 
-          {/* Key metrics — financial KPI grid */}
           {ao && ao.keyMetrics.length > 0 && (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4 mb-5 pb-5 border-b border-base-border">
               {ao.keyMetrics.map((m, i) => (
@@ -985,27 +1187,21 @@ function MessageBubble({
             </div>
           )}
 
-          {/* Detailed narrative */}
           <div
             className="prose-dark text-sm"
             dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }}
           />
 
-          {/* Structured cards */}
           {message.feeCard && <FeeBreakdownCard feeCard={message.feeCard} />}
           {message.valuationCard && <ValuationTimelineCard card={message.valuationCard} />}
-
         </div>
 
-        {/* Collapsible detail sections */}
         {ao && ao.glossaryTerms.length > 0 && <AnswerGlossary terms={ao.glossaryTerms} />}
         {ao && ao.caveats.length > 0 && <AnswerCaveats caveats={ao.caveats} />}
         {ao?.calculationNote && <AnswerCalculationNote note={ao.calculationNote} />}
 
-        {/* Debug panel */}
         {showDebug && message.routerDebug && <QueryDebugPanel debug={message.routerDebug} />}
 
-        {/* Card footer — follow-ups + sources */}
         {(ao?.followUpQuestions?.length || hasEvidence) && (
           <div className="response-card-footer">
             <div className="flex flex-wrap gap-1.5 flex-1 min-w-0">
@@ -1066,7 +1262,7 @@ function AnswerGlossary({ terms }: { terms: GlossaryEntryData[] }) {
       {open && (
         <div className="px-5 pb-4 space-y-3 border-t border-base-border">
           {terms.map((t, i) => (
-            <div key={i} className="pt-3 first:pt-3">
+            <div key={i} className="pt-3">
               <p className="text-xs font-semibold text-slate-200">
                 {t.term}
                 {t.abbreviation && <span className="text-slate-600 font-normal ml-2">({t.abbreviation})</span>}
@@ -1143,13 +1339,13 @@ function FeeBreakdownCard({ feeCard }: { feeCard: FeeCard }) {
         </div>
       )}
       {feeCard.deals.map((deal) => (
-        <FeeCard key={`${deal.company}-${deal.round}`} deal={deal} reportingCurrency={feeCard.reportingCurrency} />
+        <FeeCardItem key={`${deal.company}-${deal.round}`} deal={deal} />
       ))}
     </div>
   );
 }
 
-function FeeCard({ deal, reportingCurrency }: { deal: FeeCardDeal; reportingCurrency: string }) {
+function FeeCardItem({ deal }: { deal: FeeCardDeal }) {
   const [expanded, setExpanded] = useState(false);
 
   const statusCls = (s: string) => clsx("text-[10px] px-1.5 py-0.5 rounded border font-medium", {
@@ -1187,7 +1383,7 @@ function FeeCard({ deal, reportingCurrency }: { deal: FeeCardDeal; reportingCurr
             <div className="card-section-label mb-2">Fee schedule</div>
             <div className="space-y-1.5">
               {deal.schedule.map((line) => (
-                <FeeScheduleRow key={line.feeType} line={line} reportingCurrency={reportingCurrency} />
+                <FeeScheduleRow key={line.feeType} line={line} />
               ))}
             </div>
           </div>
@@ -1201,10 +1397,7 @@ function FeeCard({ deal, reportingCurrency }: { deal: FeeCardDeal; reportingCurr
 
           {deal.feeLines.length > 0 && (
             <div className="border-t border-base-border">
-              <button
-                onClick={() => setExpanded((e) => !e)}
-                className="disclosure-trigger"
-              >
+              <button onClick={() => setExpanded((e) => !e)} className="disclosure-trigger">
                 <span>{deal.feeLines.length} fee line{deal.feeLines.length !== 1 ? "s" : ""}</span>
                 <ChevronDown className={clsx("w-3.5 h-3.5 transition-transform duration-150", expanded && "rotate-180")} />
               </button>
@@ -1229,6 +1422,46 @@ function FeeCard({ deal, reportingCurrency }: { deal: FeeCardDeal; reportingCurr
           )}
         </>
       )}
+    </div>
+  );
+}
+
+// ─── Fee Schedule Row ─────────────────────────────────────────────────────────
+
+function FeeScheduleRow({ line }: { line: FeeCardScheduleLine }) {
+  const hasChange = line.discounted || line.standardDisplay !== line.effectiveDisplay;
+  return (
+    <div className={clsx(
+      "grid grid-cols-[1fr_auto_auto] gap-3 items-center text-xs py-2 px-2 rounded-lg",
+      line.discounted ? "bg-accent-subtle/50" : ""
+    )}>
+      <div>
+        <span className={clsx("font-medium", line.discounted ? "text-slate-200" : "text-slate-400")}>{line.feeType}</span>
+        <span className="text-slate-700 ml-1.5 text-[10px]">{line.basis}</span>
+      </div>
+      <div className="flex items-center gap-1.5 tabular-nums">
+        {hasChange ? (
+          <>
+            <span className="text-slate-700 line-through text-[11px]">{line.standardDisplay}</span>
+            <span className="text-slate-600">→</span>
+            <span className={line.discounted ? "text-accent font-semibold" : "text-slate-300"}>{line.effectiveDisplay}</span>
+          </>
+        ) : (
+          <span className="text-slate-400">{line.effectiveDisplay}</span>
+        )}
+      </div>
+      <div className="text-right min-w-[80px]">
+        {line.undeterminable ? (
+          <span className="text-slate-700 text-[10px] italic">at exit</span>
+        ) : line.savingDisplay ? (
+          <div>
+            <span className="text-accent font-semibold text-[11px]">{line.savingDisplay}</span>
+            {line.savingRptDisplay && <div className="text-accent/50 text-[9px]">≈ {line.savingRptDisplay}/period</div>}
+          </div>
+        ) : (
+          <span className="text-slate-800">—</span>
+        )}
+      </div>
     </div>
   );
 }
@@ -1341,7 +1574,7 @@ const MARK_COLORS: Record<string, string> = {
   "Write Off": "#c45b5b",
 };
 
-function ValuationSparkline({ marks, dealCurrency, entrySharePrice }: {
+function ValuationSparkline({ marks, entrySharePrice }: {
   marks: ValuationMark[];
   dealCurrency: string;
   entrySharePrice: number;
@@ -1515,46 +1748,6 @@ function ValuationTimelineItem({ tl }: { tl: ValuationCardTimeline }) {
               </tbody>
             </table>
           </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ─── Fee Schedule Row ─────────────────────────────────────────────────────────
-
-function FeeScheduleRow({ line, reportingCurrency }: { line: FeeCardScheduleLine; reportingCurrency: string }) {
-  const hasChange = line.discounted || line.standardDisplay !== line.effectiveDisplay;
-  return (
-    <div className={clsx(
-      "grid grid-cols-[1fr_auto_auto] gap-3 items-center text-xs py-2 px-2 rounded-lg",
-      line.discounted ? "bg-accent-subtle/50" : ""
-    )}>
-      <div>
-        <span className={clsx("font-medium", line.discounted ? "text-slate-200" : "text-slate-400")}>{line.feeType}</span>
-        <span className="text-slate-700 ml-1.5 text-[10px]">{line.basis}</span>
-      </div>
-      <div className="flex items-center gap-1.5 tabular-nums">
-        {hasChange ? (
-          <>
-            <span className="text-slate-700 line-through text-[11px]">{line.standardDisplay}</span>
-            <span className="text-slate-600">→</span>
-            <span className={line.discounted ? "text-accent font-semibold" : "text-slate-300"}>{line.effectiveDisplay}</span>
-          </>
-        ) : (
-          <span className="text-slate-400">{line.effectiveDisplay}</span>
-        )}
-      </div>
-      <div className="text-right min-w-[80px]">
-        {line.undeterminable ? (
-          <span className="text-slate-700 text-[10px] italic">at exit</span>
-        ) : line.savingDisplay ? (
-          <div>
-            <span className="text-accent font-semibold text-[11px]">{line.savingDisplay}</span>
-            {line.savingRptDisplay && <div className="text-accent/50 text-[9px]">≈ {line.savingRptDisplay}/period</div>}
-          </div>
-        ) : (
-          <span className="text-slate-800">—</span>
         )}
       </div>
     </div>

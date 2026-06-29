@@ -475,34 +475,123 @@ export function classifyIntent(
  * Based on their actual positions so the prompts are always relevant.
  */
 export function buildStarterPrompts(investorId: string, db: Database): string[] {
-  const prompts: string[] = ["Give me a portfolio overview"];
-
   const allocIds = db.allocationsByInvestor.get(investorId) ?? [];
-  if (allocIds.length === 0)
-    return ["I don't have any investments yet. Can you tell me how to get started?"];
-
-  const distIds = db.distributionsByInvestor.get(investorId) ?? [];
-  if (distIds.length > 0) prompts.push("Show me my distributions and exits");
-
-  const obligations = (db.capitalCallsByInvestor.get(investorId) ?? [])
-    .map((id) => db.capitalCalls.get(id)!)
-    .some((c) => c?.status === "Upcoming");
-  if (obligations) prompts.push("What are my upcoming obligations?");
-
-  prompts.push("What's my account statement?");
-
-  const firstAllocId = allocIds[0];
-  if (firstAllocId) {
-    const alloc = db.allocations.get(firstAllocId);
-    if (alloc) {
-      const deal = db.deals.get(alloc.deal_id);
-      if (deal) {
-        prompts.push(`Tell me about my position in ${deal.company_name}`);
-      }
-    }
+  if (allocIds.length === 0) {
+    return ["Give me a portfolio overview", "What is MOIC and how is it calculated?"];
   }
 
-  return prompts.slice(0, 4);
+  // ── Build company → rounds map ─────────────────────────────────────────────
+  const companyRounds = new Map<
+    string,
+    { name: string; rounds: string[]; hasFeeDiscount: boolean; dealIds: string[] }
+  >();
+
+  for (const allocId of allocIds) {
+    const alloc = db.allocations.get(allocId);
+    if (!alloc) continue;
+    const deal = db.deals.get(alloc.deal_id);
+    if (!deal) continue;
+    const existing = companyRounds.get(deal.company_id) ?? {
+      name: deal.company_name,
+      rounds: [],
+      hasFeeDiscount: false,
+      dealIds: [],
+    };
+    if (!existing.rounds.includes(deal.round)) existing.rounds.push(deal.round);
+    if (alloc.fee_discount === "Yes") existing.hasFeeDiscount = true;
+    if (!existing.dealIds.includes(deal.deal_id)) existing.dealIds.push(deal.deal_id);
+    companyRounds.set(deal.company_id, existing);
+  }
+
+  const companies = [...companyRounds.values()];
+
+  // ── Portfolio signals ──────────────────────────────────────────────────────
+  const hasDistributions = (db.distributionsByInvestor.get(investorId) ?? []).length > 0;
+
+  const hasUpcomingCalls = (db.capitalCallsByInvestor.get(investorId) ?? [])
+    .map((id) => db.capitalCalls.get(id))
+    .some((c) => c?.status === "Upcoming");
+
+  const hasUpcomingFees = (db.feesByInvestor.get(investorId) ?? [])
+    .map((id) => db.fees.get(id))
+    .some((f) => f?.status === "Upcoming" || f?.status === "Overdue");
+
+  const hasAnyFeeDiscount = companies.some((c) => c.hasFeeDiscount);
+
+  // ── Find key companies ─────────────────────────────────────────────────────
+  const multiRoundCompany =
+    companies.filter((c) => c.rounds.length >= 2).sort((a, b) => b.rounds.length - a.rounds.length)[0] ??
+    null;
+
+  const secondCompany =
+    companies.find((c) => c !== multiRoundCompany) ?? null;
+
+  const feeDiscountCompany =
+    companies.find((c) => c.hasFeeDiscount && c !== multiRoundCompany) ??
+    (multiRoundCompany?.hasFeeDiscount ? multiRoundCompany : null);
+
+  // ── Build ordered prompts ──────────────────────────────────────────────────
+  const prompts: string[] = [];
+
+  // 1. Portfolio overview — always first
+  prompts.push("Give me a portfolio overview");
+
+  // 2. Multi-round deep dive (most differentiated demo scenario)
+  if (multiRoundCompany && multiRoundCompany.rounds.length >= 3) {
+    prompts.push(
+      `Walk me through my ${multiRoundCompany.name} positions — I'm invested across ${multiRoundCompany.rounds.length} rounds`
+    );
+  } else if (multiRoundCompany) {
+    prompts.push(`Tell me about my position in ${multiRoundCompany.name}`);
+  }
+
+  // 3. Upcoming capital calls / fees (time-sensitive)
+  if (hasUpcomingCalls) {
+    prompts.push("What capital calls do I still owe, and when are they due?");
+  } else if (hasUpcomingFees) {
+    prompts.push("What fee obligations do I still have outstanding?");
+  } else {
+    prompts.push("What are my upcoming obligations?");
+  }
+
+  // 4. Distributions / what actually landed in my account
+  if (hasDistributions) {
+    prompts.push("What have I actually received in cash — distributions and exit proceeds?");
+  } else {
+    prompts.push("Have I received any distributions or exit proceeds yet?");
+  }
+
+  // 5. Fee discount showcase (compelling differentiator)
+  if (hasAnyFeeDiscount) {
+    if (feeDiscountCompany) {
+      prompts.push(
+        `Do I have any fee discounts on ${feeDiscountCompany.name}, and how much am I saving vs. standard rates?`
+      );
+    } else {
+      prompts.push("Do I have any fee discounts, and what am I saving vs. the standard rates?");
+    }
+  } else {
+    prompts.push("Break down the fees I'm paying across all my deals");
+  }
+
+  // 6. Valuation history (rich visual, good demo)
+  const valuationFocus = multiRoundCompany ?? secondCompany;
+  if (valuationFocus) {
+    prompts.push(`How has ${valuationFocus.name} been valued since my initial entry?`);
+  }
+
+  // 7. Account statement / full cash flow
+  prompts.push("Show me my account statement — all cash contributions, fees, and distributions");
+
+  // 8. Second company or a different angle
+  if (secondCompany && secondCompany !== multiRoundCompany) {
+    prompts.push(`Tell me about my ${secondCompany.name} position`);
+  } else if (multiRoundCompany && multiRoundCompany.rounds.length > 1) {
+    const latestRound = multiRoundCompany.rounds[multiRoundCompany.rounds.length - 1];
+    prompts.push(`What is my effective entry price and current MOIC on ${multiRoundCompany.name} ${latestRound}?`);
+  }
+
+  return prompts.slice(0, 8);
 }
 
 /** All company names for this investor (useful for autocomplete/hints) */

@@ -203,6 +203,35 @@ interface RouterDebugData {
   evidenceCount: number;
 }
 
+interface KeyMetricData {
+  label: string;
+  value: string;
+  subtext?: string;
+  sentiment?: "positive" | "negative" | "neutral" | "warning";
+}
+
+interface GlossaryEntryData {
+  term: string;
+  abbreviation?: string;
+  shortDef: string;
+  formula?: string;
+}
+
+interface AnswerObjectData {
+  title: string;
+  conciseAnswer: string;
+  keyMetrics: KeyMetricData[];
+  detailedNarrative: string;
+  glossaryTerms: GlossaryEntryData[];
+  evidenceRefs: unknown[];
+  caveats: string[];
+  followUpQuestions: string[];
+  calculationNote: string | null;
+  intent: string;
+  personalizationLevel: "Emerging" | "Established" | "Experienced";
+  fallbackMode: boolean;
+}
+
 interface AssistantMessage {
   id: string;
   role: "user" | "assistant";
@@ -214,6 +243,7 @@ interface AssistantMessage {
   feeCard?: FeeCard;
   valuationCard?: ValuationCard;
   routerDebug?: RouterDebugData;
+  answerObject?: AnswerObjectData;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -392,13 +422,14 @@ export default function InvestorPortal({
       const assistantMsg: AssistantMessage = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
-        content: data.answer,
+        content: data.answerObject?.detailedNarrative ?? data.answer,
         intent: data.intent,
         evidence: data.evidence ?? [],
         fallbackMode: data.fallbackMode ?? false,
         feeCard: data.feeCard ?? undefined,
         valuationCard: data.valuationCard ?? undefined,
         routerDebug: data.routerDebug ?? undefined,
+        answerObject: data.answerObject ?? undefined,
       };
       setMessages((prev) => [...prev, assistantMsg]);
 
@@ -679,6 +710,7 @@ export default function InvestorPortal({
                   setActiveEvidence(evidence);
                   setEvidencePanelOpen(true);
                 }}
+                onSend={handleSend}
               />
             ))}
 
@@ -832,13 +864,16 @@ function MessageBubble({
   message,
   showDebug,
   onViewSources,
+  onSend,
 }: {
   message: AssistantMessage;
   showDebug: boolean;
   onViewSources: (ev: EvidenceItem[]) => void;
+  onSend: (text: string) => void;
 }) {
   const isUser = message.role === "user";
   const hasEvidence = !isUser && (message.evidence?.length ?? 0) > 0;
+  const ao = message.answerObject;
 
   if (isUser) {
     return (
@@ -857,6 +892,41 @@ function MessageBubble({
           <span className="text-accent font-bold text-xs">E</span>
         </div>
         <div className="flex-1 min-w-0">
+
+          {/* Title */}
+          {ao?.title && (
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">{ao.title}</p>
+          )}
+
+          {/* Concise answer highlight */}
+          {ao?.conciseAnswer && (
+            <div className="mb-3 px-3 py-2 rounded-lg border border-accent/20 bg-accent/5 text-sm text-slate-200 font-medium">
+              {ao.conciseAnswer}
+            </div>
+          )}
+
+          {/* Key metrics chips */}
+          {ao && ao.keyMetrics.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-4">
+              {ao.keyMetrics.map((m, i) => (
+                <div
+                  key={i}
+                  className={clsx(
+                    "flex flex-col px-3 py-1.5 rounded-lg border text-xs",
+                    m.sentiment === "positive" && "border-emerald-800 bg-emerald-950/60 text-emerald-300",
+                    m.sentiment === "negative" && "border-red-800 bg-red-950/60 text-red-300",
+                    m.sentiment === "warning" && "border-amber-800 bg-amber-950/60 text-amber-300",
+                    (!m.sentiment || m.sentiment === "neutral") && "border-slate-700 bg-slate-800/60 text-slate-300"
+                  )}
+                >
+                  <span className="font-semibold tabular-nums">{m.value}</span>
+                  <span className="text-[10px] opacity-70 mt-0.5">{m.label}{m.subtext ? ` · ${m.subtext}` : ""}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Detailed narrative (prose) */}
           <div
             className={clsx(
               "prose-dark text-sm leading-relaxed",
@@ -871,6 +941,21 @@ function MessageBubble({
 
           {message.valuationCard && (
             <ValuationTimelineCard card={message.valuationCard} />
+          )}
+
+          {/* Glossary terms */}
+          {ao && ao.glossaryTerms.length > 0 && (
+            <AnswerGlossary terms={ao.glossaryTerms} />
+          )}
+
+          {/* Caveats */}
+          {ao && ao.caveats.length > 0 && (
+            <AnswerCaveats caveats={ao.caveats} />
+          )}
+
+          {/* Calculation note */}
+          {ao?.calculationNote && (
+            <AnswerCalculationNote note={ao.calculationNote} />
           )}
 
           {showDebug && message.routerDebug && (
@@ -889,8 +974,107 @@ function MessageBubble({
               )}
             </button>
           )}
+
+          {/* Follow-up questions */}
+          {ao && ao.followUpQuestions.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {ao.followUpQuestions.map((q, i) => (
+                <button
+                  key={i}
+                  onClick={() => onSend(q)}
+                  className="text-xs px-2.5 py-1 rounded-full border border-slate-700 bg-slate-800/50 text-slate-400 hover:border-accent/50 hover:text-accent transition-colors"
+                >
+                  {q}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── Answer object sub-components ─────────────────────────────────────────────
+
+function AnswerGlossary({ terms }: { terms: GlossaryEntryData[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-3 rounded-lg border border-slate-800 bg-slate-900/50 overflow-hidden">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between px-3 py-2 text-xs text-slate-400 hover:text-slate-300 transition-colors"
+      >
+        <span className="flex items-center gap-1.5">
+          <BookOpen className="w-3.5 h-3.5" />
+          Glossary ({terms.length} term{terms.length !== 1 ? "s" : ""})
+        </span>
+        <ChevronDown className={clsx("w-3.5 h-3.5 transition-transform", open && "rotate-180")} />
+      </button>
+      {open && (
+        <div className="px-3 pb-3 space-y-2 border-t border-slate-800">
+          {terms.map((t, i) => (
+            <div key={i} className="pt-2">
+              <p className="text-xs font-semibold text-slate-300">
+                {t.term}{t.abbreviation && <span className="text-slate-500 font-normal ml-1">({t.abbreviation})</span>}
+              </p>
+              <p className="text-xs text-slate-400 mt-0.5">{t.shortDef}</p>
+              {t.formula && <p className="text-xs text-slate-500 mt-0.5 font-mono">{t.formula}</p>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AnswerCaveats({ caveats }: { caveats: string[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-2 rounded-lg border border-amber-900/50 bg-amber-950/20 overflow-hidden">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between px-3 py-2 text-xs text-amber-500/70 hover:text-amber-400 transition-colors"
+      >
+        <span className="flex items-center gap-1.5">
+          <AlertTriangle className="w-3.5 h-3.5" />
+          {caveats.length} caveat{caveats.length !== 1 ? "s" : ""}
+        </span>
+        <ChevronDown className={clsx("w-3.5 h-3.5 transition-transform", open && "rotate-180")} />
+      </button>
+      {open && (
+        <ul className="px-3 pb-3 space-y-1 border-t border-amber-900/30">
+          {caveats.map((c, i) => (
+            <li key={i} className="pt-1.5 text-xs text-amber-400/80 flex gap-1.5">
+              <span className="text-amber-600 mt-0.5">•</span>
+              {c}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function AnswerCalculationNote({ note }: { note: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-2 rounded-lg border border-slate-800 bg-slate-900/30 overflow-hidden">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between px-3 py-2 text-xs text-slate-500 hover:text-slate-400 transition-colors"
+      >
+        <span className="flex items-center gap-1.5">
+          <Info className="w-3.5 h-3.5" />
+          How this was calculated
+        </span>
+        <ChevronDown className={clsx("w-3.5 h-3.5 transition-transform", open && "rotate-180")} />
+      </button>
+      {open && (
+        <p className="px-3 pb-3 pt-2 text-xs text-slate-500 border-t border-slate-800 leading-relaxed">
+          {note}
+        </p>
+      )}
     </div>
   );
 }

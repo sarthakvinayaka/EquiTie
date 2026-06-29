@@ -3,20 +3,21 @@ import OpenAI from "openai";
 import { getDatabase } from "@/lib/data/loader";
 import { runPolicyChecks, runIntentPolicyChecks, runEvidenceIntegrityCheck } from "@/lib/policy/engine";
 import { classifyIntent } from "@/lib/query/router";
-import { getPortfolioOverview } from "@/lib/domain/portfolio";
-import { getPositionDetail } from "@/lib/domain/positions";
-import { getObligations } from "@/lib/domain/obligations";
-import { getDistributions } from "@/lib/domain/distributions";
+// Engine wrappers — return EngineResult<T> with assumptions + warnings
+import {
+  getInvestorPortfolioOverview,
+  getInvestorPositionByCompany,
+  getInvestorUpcomingObligations,
+  getInvestorDistributions,
+  getInvestorStatementSummary,
+} from "@/lib/engine";
 import { getInvestorFeeBreakdown } from "@/lib/engine/fees";
 import type { FeeBreakdownResult } from "@/lib/engine/fees";
 import { getInvestorValuationTimeline } from "@/lib/engine/valuations";
 import type { ValuationTimelineResult } from "@/lib/engine/valuations";
-import { getAccountStatement } from "@/lib/domain/statement";
-import {
-  buildInvestorProfile,
-  buildSystemPrompt,
-  buildUserTurn,
-} from "@/lib/prompt/formatter";
+import { getInvestorPersonalizationProfile } from "@/lib/engine";
+import { composeAnswer } from "@/lib/composer";
+import type { AnswerObject } from "@/lib/composer";
 import type { ChatRequest, ChatResponse, EvidenceItem, QueryIntent, RouterOutput } from "@/lib/domain/types";
 import { fmt, fmtMultiple, fmtNum } from "@/lib/domain/fx";
 
@@ -104,12 +105,17 @@ export async function POST(request: Request): Promise<NextResponse> {
     // ── Deterministic computation ──────────────────────────────────────────
     let computedData: unknown = null;
     let evidence: EvidenceItem[] = [];
+    let engineAssumptions: string[] = [];
+    let engineWarnings: string[] = [];
 
     {
       switch (intent) {
         case "portfolio_overview": {
-          const data = getPortfolioOverview(investorId, db);
-          evidence = data.evidence;
+          const er = getInvestorPortfolioOverview(investorId, db);
+          const data = er.result;
+          evidence = er.evidence;
+          engineAssumptions = er.assumptions;
+          engineWarnings = er.warnings;
           computedData = {
             reportDate: REPORT_DATE,
             reportingCurrency: data.reportingCurrency,
@@ -144,12 +150,15 @@ export async function POST(request: Request): Promise<NextResponse> {
             computedData = { error: "Please specify which company you want to know about." };
             break;
           }
-          const data = getPositionDetail(investorId, name, db);
+          const er2 = getInvestorPositionByCompany(investorId, name, db);
+          evidence = er2.evidence;
+          engineAssumptions = er2.assumptions;
+          engineWarnings = er2.warnings;
+          const data = er2.result;
           if (!data) {
             computedData = { error: `No position found for "${name}" in this investor's portfolio.` };
             break;
           }
-          evidence = data.evidence;
           computedData = {
             reportDate: REPORT_DATE,
             company: data.companyName,
@@ -192,8 +201,11 @@ export async function POST(request: Request): Promise<NextResponse> {
         }
 
         case "obligations": {
-          const data = getObligations(investorId, db);
-          evidence = data.evidence;
+          const er3 = getInvestorUpcomingObligations(investorId, db);
+          const data = er3.result;
+          evidence = er3.evidence;
+          engineAssumptions = er3.assumptions;
+          engineWarnings = er3.warnings;
           computedData = {
             reportDate: REPORT_DATE,
             reportingCurrency: data.reportingCurrency,
@@ -224,8 +236,11 @@ export async function POST(request: Request): Promise<NextResponse> {
         }
 
         case "distributions": {
-          const data = getDistributions(investorId, db);
-          evidence = data.evidence;
+          const er4 = getInvestorDistributions(investorId, db);
+          const data = er4.result;
+          evidence = er4.evidence;
+          engineAssumptions = er4.assumptions;
+          engineWarnings = er4.warnings;
           computedData = {
             reportDate: REPORT_DATE,
             reportingCurrency: data.reportingCurrency,
@@ -309,6 +324,8 @@ export async function POST(request: Request): Promise<NextResponse> {
           };
 
           // ── Structured fee card for UI rendering ────────────────────────────
+          engineAssumptions = engineResult.assumptions;
+          engineWarnings = engineResult.warnings;
           (computedData as Record<string, unknown>).__feeCard = buildFeeCard(feeData);
           break;
         }
@@ -318,6 +335,8 @@ export async function POST(request: Request): Promise<NextResponse> {
           const engineResult = getInvestorValuationTimeline(investorId, name, db);
           const valData = engineResult.result;
           evidence = engineResult.evidence;
+          engineAssumptions = engineResult.assumptions;
+          engineWarnings = engineResult.warnings;
 
           if (valData.noDataReason) {
             computedData = {
@@ -391,11 +410,16 @@ export async function POST(request: Request): Promise<NextResponse> {
         }
 
         case "account_statement": {
-          const data = getAccountStatement(investorId, db);
-          evidence = data.evidence;
+          const er5 = getInvestorStatementSummary(investorId, db);
+          const data = er5.result;
+          evidence = er5.evidence;
+          engineAssumptions = er5.assumptions;
+          engineWarnings = er5.warnings;
           computedData = {
             reportDate: REPORT_DATE,
             reportingCurrency: data.reportingCurrency,
+            earliestDate: data.earliestDate,
+            latestDate: data.latestDate,
             summary: {
               totalContributions: fmt(data.totalContributionsRpt, data.reportingCurrency),
               totalFees: fmt(data.totalFeesRpt, data.reportingCurrency),
@@ -448,50 +472,38 @@ export async function POST(request: Request): Promise<NextResponse> {
       );
     }
 
-    // ── LLM formatting ─────────────────────────────────────────────────────
-    const profile = buildInvestorProfile(investorId, db);
-    const systemPrompt = buildSystemPrompt(profile, intent);
-    const userTurn = buildUserTurn(message, computedData);
-
+    // ── Compose answer via grounded composer ──────────────────────────────
     const apiKey = process.env.OPENAI_API_KEY;
-    let answer: string;
-    let fallbackMode = false;
+    const openAIClient = apiKey ? new OpenAI({ apiKey }) : null;
 
-    if (apiKey) {
-      const client = new OpenAI({ apiKey });
-      const msgs: OpenAI.Chat.ChatCompletionMessageParam[] = [
-        { role: "system", content: systemPrompt },
-        // Include recent history for multi-turn context (last 6 turns)
-        ...history.slice(-6).map((m) => ({
-          role: m.role as "user" | "assistant",
-          content: m.content,
-        })),
-        { role: "user", content: userTurn },
-      ];
+    const personalization = getInvestorPersonalizationProfile(investorId, db).result;
 
-      const response = await client.chat.completions.create({
-        model: "gpt-4o",
-        max_tokens: 1024,
-        messages: msgs,
-      });
-
-      answer = response.choices[0]?.message?.content ?? "";
-    } else {
-      // Fallback: structured template when no API key
-      fallbackMode = true;
-      answer = formatFallbackAnswer(intent, computedData, profile);
-    }
+    const answerObject: AnswerObject = await composeAnswer(
+      {
+        userMessage: message,
+        intent,
+        computedData,
+        personalization,
+        evidence,
+        assumptions: engineAssumptions,
+        warnings: engineWarnings,
+        entities,
+      },
+      openAIClient
+    );
 
     const response: ChatResponse & {
       feeCard?: unknown;
       valuationCard?: unknown;
       routerDebug?: unknown;
+      answerObject?: AnswerObject;
     } = {
-      answer,
+      answer: answerObject.detailedNarrative,
       intent,
       evidence,
-      fallbackMode,
+      fallbackMode: answerObject.fallbackMode,
       routerDebug: buildRouterDebug(intentResult, evidence.length),
+      answerObject,
     };
 
     // Attach structured cards when present
@@ -654,75 +666,3 @@ function buildFeeCard(feeData: FeeBreakdownResult) {
   };
 }
 
-/**
- * Template-based fallback when no API key is set.
- * Formats the computed data into readable markdown.
- * Numbers are always correct — only the phrasing is less natural.
- */
-function formatFallbackAnswer(
-  intent: QueryIntent,
-  data: unknown,
-  profile: ReturnType<typeof buildInvestorProfile>
-): string {
-  const d = data as Record<string, unknown>;
-
-  switch (intent) {
-    case "portfolio_overview": {
-      const positions = (d.positions as { company: string; round: string; status: string; contributed: string; currentValue: string; distributions: string; moic: string }[]) ?? [];
-      const lines = positions
-        .map(
-          (p) =>
-            `| ${p.company} | ${p.round} | ${p.status} | ${p.contributed} | ${p.currentValue} | ${p.distributions} | ${p.moic} |`
-        )
-        .join("\n");
-      return `**Portfolio Overview** (${d.reportingCurrency})
-
-| Metric | Value |
-|---|---|
-| Total Committed | ${d.totalCommitted} |
-| Total Contributed | ${d.totalContributed} |
-| Current Value (unrealised) | ${d.totalCurrentValue} |
-| Total Distributions (net) | ${d.totalDistributionsNet} |
-| **Total Portfolio Value** | **${d.totalValue}** |
-| **Portfolio MOIC** | **${d.portfolioMoicFormatted}** |
-| Active Positions | ${d.activePositions} |
-
-**Holdings**
-
-| Company | Round | Status | Contributed | Current Value | Distributions | MOIC |
-|---|---|---|---|---|---|---|
-${lines}
-
-_Report date: ${d.reportDate} · ${profile.name}_`;
-    }
-
-    case "obligations": {
-      const calls = (d.capitalCalls as { company: string; round: string; dueDate: string; amount: string; status: string }[]) ?? [];
-      const fees = (d.fees as { company: string; feeType: string; dueDate: string; status: string; amount: string }[]) ?? [];
-      const callLines = calls.map((c) => `- **${c.company} ${c.round}** — ${c.amount} due ${c.dueDate} (${c.status})`).join("\n");
-      const feeLines = fees.map((f) => `- **${f.company}** — ${f.feeType}: ${f.amount} due ${f.dueDate} [${f.status}]`).join("\n");
-      return `**Upcoming Obligations** · Total: ${d.totalObligations}
-
-**Capital Calls** (${d.totalCapitalCalls})
-${callLines || "_None_"}
-
-**Fees** (${d.totalFees})
-${feeLines || "_None_"}`;
-    }
-
-    case "distributions": {
-      const dists = (d.distributions as { company: string; round: string; date: string; type: string; gross: string; performanceFee: string; net: string }[]) ?? [];
-      const lines = dists.map((dist) => `- **${dist.company} ${dist.round}** (${dist.date}) — ${dist.type}: Gross ${dist.gross}, Carry ${dist.performanceFee}, **Net ${dist.net}**`).join("\n");
-      return `**Distributions**
-
-Total Gross: ${d.totalGross}
-Total Performance Fee: ${d.totalPerformanceFee}
-**Total Net Received: ${d.totalNet}**
-
-${lines || "_No distributions_"}`;
-    }
-
-    default:
-      return `**Data (Demo Mode — connect API key for natural language responses)**\n\n\`\`\`json\n${JSON.stringify(data, null, 2)}\n\`\`\``;
-  }
-}

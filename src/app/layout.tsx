@@ -1,11 +1,51 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "https://equitie.vercel.app";
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  themeColor: "#141c28",
+};
+
 export const metadata: Metadata = {
+  metadataBase: new URL(APP_URL),
   title: "EquiTie — Investor Portal",
-  description: "Private markets investor assistant",
+  description:
+    "Private markets investor assistant. Deterministic finance engine, policy-guarded access, evidence-grounded answers — works fully offline with no API key.",
+  keywords: ["private equity", "investor portal", "portfolio management", "venture capital"],
+  authors: [{ name: "EquiTie" }],
+  robots: { index: false, follow: false },
   icons: {
-    icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='4' fill='%23141c28'/><text x='16' y='22' text-anchor='middle' font-size='16' font-weight='700' fill='%23c9a84c' font-family='Georgia,serif'>E</text></svg>",
+    icon: [
+      { url: "/icon.svg", type: "image/svg+xml" },
+    ],
+    shortcut: "/icon.svg",
+    apple: "/icon.svg",
+  },
+  openGraph: {
+    type: "website",
+    url: APP_URL,
+    title: "EquiTie — Investor Portal",
+    description:
+      "Private markets investor assistant with a deterministic finance engine, policy-guarded access control, and evidence-grounded answers.",
+    siteName: "EquiTie",
+    images: [
+      {
+        url: "/api/og",
+        width: 1200,
+        height: 630,
+        alt: "EquiTie Investor Portal — deterministic finance engine, 381 tests, 112 investors",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "EquiTie — Investor Portal",
+    description:
+      "Private markets investor assistant. Deterministic finance engine, 381-test harness, evidence-grounded answers.",
+    images: ["/api/og"],
   },
 };
 

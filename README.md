@@ -6,6 +6,15 @@ Built as a 2–3 hour senior engineering case study.
 
 > **Reviewer note:** See [`DEMO.md`](DEMO.md) for a 4–5 minute walkthrough script with exact questions to ask, what each demonstrates, and the recommended demo investor (Selina Voss / INV002). The app works fully without an API key — all financial outputs remain correct in template mode.
 
+### Deploy checklist
+
+- [ ] Push repo to GitHub
+- [ ] Import to Vercel ([vercel.com/new](https://vercel.com/new)) — framework auto-detected as Next.js
+- [ ] Add `OPENAI_API_KEY` env var (optional — skip for template mode)
+- [ ] Add `NEXT_PUBLIC_APP_URL` env var (your Vercel domain, for OG image URLs)
+- [ ] Deploy — no database, no extra config
+- [ ] Smoke-test with `curl` commands in the [Deployment → Verifying the deployed app](#verifying-the-deployed-app) section
+
 ---
 
 ## What it does
@@ -351,27 +360,126 @@ The default investor on load is **Idris Olawale (INV001, GBP)**. Use the investo
 
 ## Deployment
 
-The project is Vercel-ready. No external database, no environment setup beyond the optional API key.
+### Prerequisites
+
+- Node.js 18+
+- A [Vercel](https://vercel.com) account (free Hobby tier works)
+- Optionally: an OpenAI API key (the app runs fully without one in template mode)
+
+---
+
+### Deploy to Vercel — step by step
+
+**Option A: Vercel dashboard (recommended)**
+
+1. Push the repo to GitHub (or fork it).
+2. Go to [vercel.com/new](https://vercel.com/new) and import the repository.
+3. Framework preset: **Next.js** (auto-detected).
+4. Add environment variables in the Vercel dashboard:
+   | Variable | Required | Value |
+   |---|---|---|
+   | `OPENAI_API_KEY` | Optional | Your OpenAI key — without it the app runs in template mode |
+   | `NEXT_PUBLIC_APP_URL` | Optional | Your deployed URL e.g. `https://equitie.vercel.app` — used for OG image absolute URLs |
+5. Click **Deploy**. No build command changes needed.
+
+**Option B: Vercel CLI**
 
 ```bash
-# Deploy via Vercel CLI
-npx vercel --prod
+# Install CLI
+npm i -g vercel
 
-# Or connect the GitHub repo in the Vercel dashboard and set:
-#   OPENAI_API_KEY  (optional)
+# Deploy from project root
+vercel --prod
+
+# Set env vars (or set them in the dashboard)
+vercel env add OPENAI_API_KEY production
+vercel env add NEXT_PUBLIC_APP_URL production
 ```
 
-`next.config.ts` includes:
+---
+
+### How data files reach the serverless function
+
+The CSVs in `data/` are **not** a database — they are static files bundled directly into each serverless function via Next.js file tracing:
 
 ```ts
+// next.config.ts
 outputFileTracingIncludes: {
   "**": ["./data/**/*"],
 }
 ```
 
-This bundles all 10 CSV files into the serverless function so `getDatabase()` can read them at runtime without a separate data store.
+At build time, all 10 CSV files are included in the `.nft.json` manifest for every route that reads them. Vercel uploads them alongside the function code. At runtime, `process.cwd()` resolves the files exactly as in local development.
 
-Cold start latency: ~200ms for CSV parsing on first request per worker. Subsequent requests hit the in-memory singleton instantly.
+You can verify this after a build:
+
+```bash
+npm run build
+cat .next/server/app/api/chat/route.js.nft.json | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+csvs = [f for f in d['files'] if '.csv' in f]
+print(f'{len(csvs)} CSV files traced:', *csvs, sep='\n  ')
+"
+# → 10 CSV files traced
+```
+
+---
+
+### Cold start and performance
+
+| Metric | Value |
+|---|---|
+| First request (cold start, CSV parse) | ~200ms |
+| Subsequent requests (in-memory singleton) | <10ms |
+| LLM call (GPT-4o, if API key present) | 2–5s |
+| Template mode (no API key) | <50ms end-to-end |
+
+The chat function timeout is set to 30 seconds in `vercel.json` — well above the worst-case LLM latency.
+
+---
+
+### Verifying the deployed app
+
+After deployment, run these smoke checks against your live URL:
+
+```bash
+BASE=https://your-app.vercel.app
+
+# 1. Investor list loads
+curl "$BASE/api/investors" | python3 -c "import sys,json; print(len(json.load(sys.stdin)), 'investors')"
+
+# 2. Portfolio overview (template mode — no LLM needed)
+curl -X POST "$BASE/api/chat" \
+  -H "Content-Type: application/json" \
+  -d '{"investorId":"INV002","message":"Give me a portfolio overview"}' \
+  | python3 -c "import sys,json; d=json.load(sys.stdin); print('intent:', d['intent'], '| fallback:', d['fallbackMode'])"
+
+# 3. Cross-investor guard fires
+curl -X POST "$BASE/api/chat" \
+  -H "Content-Type: application/json" \
+  -d '{"investorId":"INV001","message":"What does Selina Voss portfolio look like?"}' \
+  | python3 -c "import sys,json; d=json.load(sys.stdin); print('blocked:', d.get('policyViolation'))"
+
+# 4. Admin routes are gated (expect 403)
+curl -o /dev/null -w "%{http_code}" "$BASE/api/diagnostics"
+
+# 5. OG image renders
+curl -sI "$BASE/api/og" | grep content-type
+```
+
+All five should pass before sharing the link with reviewers.
+
+---
+
+### Environment variable reference
+
+| Variable | Required | Default | Notes |
+|---|---|---|---|
+| `OPENAI_API_KEY` | No | — | If absent, app runs in template mode (fully functional, no LLM phrasing) |
+| `NEXT_PUBLIC_APP_URL` | No | `https://equitie.vercel.app` | Set to your actual domain for correct OG image absolute URLs |
+
+No database connection strings, no Redis, no external services required.
 
 ---
 

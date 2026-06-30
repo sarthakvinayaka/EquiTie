@@ -86,6 +86,58 @@ If `ANTHROPIC_API_KEY` is not set, the app runs in **Demo Mode**: answers are fo
 4. For positions in exited or written-off deals, unrealised value is 0. Distributions capture the actual proceeds.
 5. The admin fee is always treated as USD (matching the dataset schema), even for non-USD deals.
 
+## Verification
+
+All financial computations are **deterministic** — no LLM, no network, no randomness. The eval harness has 9 test suites covering 378 assertions, runnable in under 1 second:
+
+```bash
+npm test          # all suites, no output noise
+npm run verify    # all suites, verbose (per-test names)
+```
+
+### Test suites
+
+| Suite | File | What it proves | Type |
+|---|---|---|---|
+| Math / formulas | `engine/__tests__/calculations.test.ts` | MOIC, FX, HHI, weighted avg | [D] |
+| Engine integration | `engine/__tests__/engine.test.ts` | all 9 engine functions end-to-end | [D] |
+| Fee scenarios | `engine/__tests__/fees.test.ts` | 5 scenarios incl. negotiated discount | [D] |
+| Valuation history | `engine/__tests__/valuations.test.ts` | down-rounds, peak MOIC | [D] |
+| **Golden (pinned values)** | `engine/__tests__/golden.test.ts` | INV001 and INV009 expected totals | [D] |
+| Investor isolation | `policy/__tests__/isolation.test.ts` | cross-investor scoping | [D] |
+| Red-team / attacks | `policy/__tests__/red-team.test.ts` | injection, aggregation, ambiguity | [D] |
+| Query routing | `query/__tests__/router.test.ts` | 30 routing cases across all intents | [D] |
+| **Fallback mode** | `composer/__tests__/fallback.test.ts` | LLM-unavailable deterministic output | [D] |
+
+**[D] Deterministic** — exact or tolerance-bounded values from `data/*.csv`. Breaks immediately if computation changes.
+**[N] Narrative-quality** — structural checks on text output; exact wording may vary with LLM phrasing. A subset of the fallback suite.
+
+### Key invariants under test
+
+| Invariant | Suite |
+|---|---|
+| Investor A cannot see Investor B's data | `isolation.test.ts`, `golden.test.ts` § E |
+| Prompt injection cannot leak cross-investor data | `red-team.test.ts` |
+| Negotiated fee discounts applied at correct rates | `fees.test.ts`, `golden.test.ts` § D |
+| Portfolio contributed = statement contributions (within 1 GBP) | `golden.test.ts` § B |
+| Multi-round positions aggregate correctly, warnings emitted | `golden.test.ts` § C |
+| Net cash flow = distributions − contributions − fees | `golden.test.ts` § A |
+| Fallback answers are valid and idempotent without an API key | `fallback.test.ts` |
+| All engine results carry `{result, evidence, assumptions, warnings}` | every suite |
+
+### Pinned golden values (INV001, report date 2026-06-25)
+
+| Metric | Source | Expected |
+|---|---|---|
+| Statement line count | `statement_lines.csv` | 6 |
+| Total contributed | 227,600 USD ÷ 1.35 | ≈ 168,592 GBP |
+| Total structuring fees paid | 3,000 USD ÷ 1.35 | ≈ 2,222 GBP |
+| Total distributions | none in dataset | 0 GBP |
+| Net cash flow | formula | < 0 (negative, net deployer) |
+| Portfolio MOIC | latest marks, no distrib. | 2.4× – 3.0× |
+| Forgecraft contributed (3 rounds) | 90,600 USD ÷ 1.35 | ≈ 67,111 GBP |
+| Forgecraft company MOIC | aggregate latest marks | > 3.0× |
+
 ## Known limitations
 
 - **No authentication**: the investor selector is a demo feature. Production would gate on session identity.

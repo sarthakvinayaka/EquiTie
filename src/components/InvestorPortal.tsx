@@ -361,8 +361,8 @@ function StatusBadge({ status }: { status: string }) {
 
 function SourceTypePill({ type }: { type: EvidenceItem["sourceType"] }) {
   const labels: Record<EvidenceItem["sourceType"], string> = {
-    allocation: "Alloc", valuation: "Val", capital_call: "Call",
-    fee: "Fee", distribution: "Dist", statement_line: "Stmt", deal: "Deal",
+    allocation: "Allocation", valuation: "Valuation", capital_call: "Capital Call",
+    fee: "Fee", distribution: "Distribution", statement_line: "Statement", deal: "Deal",
   };
   const colors: Record<EvidenceItem["sourceType"], string> = {
     allocation: "bg-teal-950/80 text-teal-400 border-teal-900/60",
@@ -578,7 +578,7 @@ export default function InvestorPortal({
           {hasFallbackMode && (
             <div className="flex items-center gap-1.5 text-amber-500/80 text-[11px] bg-amber-950/30 border border-amber-900/40 px-2.5 py-1 rounded-md">
               <AlertTriangle className="w-3 h-3" />
-              Fallback
+              Template mode — no API key
             </div>
           )}
 
@@ -1184,7 +1184,7 @@ function MessageBubble({
             </span>
             {message.fallbackMode && (
               <span className="text-[10px] text-amber-600/80 border border-amber-900/30 bg-amber-950/20 px-1.5 py-0.5 rounded">
-                fallback
+                template mode
               </span>
             )}
           </div>

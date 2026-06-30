@@ -4,6 +4,8 @@ A personalised AI assistant for private equity investors. Answers questions abou
 
 Built as a 2–3 hour senior engineering case study.
 
+> **Reviewer note:** See [`DEMO.md`](DEMO.md) for a 4–5 minute walkthrough script with exact questions to ask, what each demonstrates, and the recommended demo investor (Selina Voss / INV002). The app works fully without an API key — all financial outputs remain correct in template mode.
+
 ---
 
 ## What it does
@@ -303,7 +305,7 @@ No investor's data is ever included in another investor's API response, prompt, 
 | Company not in portfolio | 404 with plain-language explanation ("I don't see Acme in your portfolio") |
 | Ambiguous company name | Clarification response listing the candidates |
 
-Fallback mode is visible: a banner in the top bar reads "Demo Mode — LLM unavailable, answers are template-driven". The evidence panel still populates from the engine result, so source provenance is unaffected.
+When the LLM is unavailable, a "Template mode — no API key" banner appears in the top bar. The evidence panel still populates from the engine result, so source provenance is unaffected. Answers carry a "template mode" label so reviewers can distinguish LLM-phrased from template-phrased responses.
 
 ---
 
@@ -414,13 +416,12 @@ Cold start latency: ~200ms for CSV parsing on first request per worker. Subseque
 
 ## Known limitations
 
-- **Static FX rates** — rates are fixed at the dataset snapshot (2026-06-25). Live FX would require a rates API and cache layer.
-- **No authentication** — `investorId` comes from the URL/body and is trusted. Production would gate on session identity (JWT or cookie).
-- **Single-turn only** — no multi-turn memory. Follow-up questions that rely on prior context ("and what about Series B?") require the user to re-state the company.
-- **No search across companies** — "which of my investments is in biotech?" works via portfolio overview, not a dedicated search intent.
-- **Statement fees are realised only** — the statement ledger shows only lines in `statement_lines.csv`. Upcoming management fees visible in the fee schedule do not appear in the statement until paid.
-- **Keyword router limits** — very short or unusually phrased queries may fall to `unsupported_or_ambiguous`. A semantic fallback (embedding similarity) would improve coverage.
-- **In-memory audit log** — the policy log is a ring buffer in process memory. It resets on cold start and is not durable.
+- **Static FX rates** — rates are fixed at the dataset snapshot (2026-06-25). Reported values do not reflect live exchange rate movements; production would use a rates API with a short cache TTL.
+- **No session authentication** — `investorId` is accepted from the request body and validated by the policy layer, but not bound to a session identity. The investor selector is a demonstration affordance; production would gate on a JWT or session cookie.
+- **Single-turn conversations** — follow-up questions that depend on a prior turn require the investor to restate context. The intent router has no conversation memory; entity carryover is a first-sprint addition.
+- **Statement ledger shows realised lines only** — the account statement reflects lines in `statement_lines.csv` (paid transactions). Upcoming management and admin fees are visible in the obligations view but do not appear in the statement until they are settled.
+- **Intent router coverage** — very short or unusually phrased queries may fall to the `unsupported_or_ambiguous` intent and return a clarification prompt. The router covers the most common phrasings for each intent; semantic routing would improve tail coverage.
+- **In-memory audit log** — the policy log is a ring buffer in process memory and resets on cold start. Durable audit logging would write to an append-only database table.
 
 ---
 

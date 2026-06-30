@@ -229,13 +229,12 @@ export function buildKeyMetrics(
     case "account_statement": {
       const summary = (d.summary ?? {}) as D;
       const netStr = asStr(summary.netCashFlow);
-      const isPositiveFlow = netStr.includes("-")
-        ? false
-        : parseFloat(netStr.replace(/[^0-9.-]/g, "")) > 0;
+      const netRaw = typeof summary.netCashFlowRaw === "number" ? summary.netCashFlowRaw : null;
+      const isPositiveFlow = netRaw !== null ? netRaw > 0 : !netStr.includes("-") && parseFloat(netStr.replace(/[^0-9.-]/g, "")) > 0;
       return [
         {
           label: "Net Cash Flow",
-          value: netStr,
+          value: isPositiveFlow ? netStr : `−${netStr}`,
           subtext: reportingCurrency,
           sentiment: isPositiveFlow ? "positive" : "neutral",
         },

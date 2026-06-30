@@ -38,7 +38,7 @@ import { composeAnswer } from "@/lib/composer";
 import type { AnswerObject } from "@/lib/composer";
 import { buildFeeCard, buildValuationCard, buildStatementCard } from "@/lib/composer/cards";
 import type { ChatRequest, ChatResponse, EvidenceItem, RouterOutput } from "@/lib/domain/types";
-import { fmt, fmtMultiple, fmtNum } from "@/lib/domain/fx";
+import { fmt, fmtMultiple, fmtNum, fmtPrice } from "@/lib/domain/fx";
 
 const REPORT_DATE = "2026-06-25";
 
@@ -199,10 +199,10 @@ export async function POST(request: Request): Promise<NextResponse> {
               commitment: fmt(r.commitmentDealCcy, r.dealCurrency),
               contributed: fmt(r.contributedDealCcy, r.dealCurrency),
               units: fmtNum(r.units),
-              entrySharePrice: fmt(r.entrySharePrice, r.dealCurrency),
-              effectiveSharePrice: fmt(r.effectiveSharePrice, r.dealCurrency),
+              entrySharePrice: fmtPrice(r.entrySharePrice, r.dealCurrency),
+              effectiveSharePrice: fmtPrice(r.effectiveSharePrice, r.dealCurrency),
               priceDiscountPct: r.priceDiscountPct > 0 ? `${r.priceDiscountPct}% off entry price` : "no price discount",
-              currentSharePrice: r.latestSharePrice !== null ? fmt(r.latestSharePrice, r.dealCurrency) : "N/A",
+              currentSharePrice: r.latestSharePrice !== null ? fmtPrice(r.latestSharePrice, r.dealCurrency) : "N/A",
               currentValue: fmt(r.currentValueRpt, r.reportingCurrency),
               distributions: fmt(r.distributionsNetRpt, r.reportingCurrency),
               moic: fmtMultiple(r.moic),

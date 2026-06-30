@@ -43,6 +43,19 @@ export function fmt(
   }
 }
 
+export function fmtPrice(amount: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    }).format(amount);
+  } catch {
+    return `${currency} ${amount.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+  }
+}
+
 export function fmtNum(amount: number, decimals = 2): string {
   return amount.toLocaleString("en-US", {
     minimumFractionDigits: decimals,

@@ -4,7 +4,7 @@ import type {
   PositionDetail,
   RoundDetail,
 } from "./types";
-import { convertCurrency, fmt, fmtNum } from "./fx";
+import { convertCurrency, fmt, fmtNum, fmtPrice } from "./fx";
 
 export function getPositionDetail(
   investorId: string,
@@ -143,7 +143,7 @@ export function getPositionDetail(
       id: alloc.allocation_id,
       sourceType: "allocation",
       label: `${matchedCompany.company_name} — ${deal.round}`,
-      detail: `Commitment: ${fmt(commitment, dealCcy)} | Contributed: ${fmt(contributed, dealCcy)} | Units: ${fmtNum(units)} @ ${fmt(effectiveSP, dealCcy)} effective price${priceDiscountPct > 0 ? ` (${priceDiscountPct}% discount)` : ""}`,
+      detail: `Commitment: ${fmt(commitment, dealCcy)} | Contributed: ${fmt(contributed, dealCcy)} | Units: ${fmtNum(units)} @ ${fmtPrice(effectiveSP, dealCcy)} effective price${priceDiscountPct > 0 ? ` (${priceDiscountPct}% discount)` : ""}`,
       amount: commitmentRpt,
       currency: rptCcy,
       date: alloc.allocation_date,

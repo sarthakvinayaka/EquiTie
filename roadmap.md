@@ -197,7 +197,11 @@ The prototype's 378-test suite is the starting point. At production scale:
 
 ### LLM-as-judge (weekly)
 
-A random sample of 50 production conversations is reviewed weekly by claude-opus-4-8 using a structured rubric: factual accuracy (does the narrative match the pre-computed data?), tone appropriateness for investor profile, compliance safety (no advice given), and completeness (were all parts of the question addressed?). Results are reported to the product team. Sustained quality regression triggers a prompt review sprint.
+A stratified sample of production conversations is reviewed weekly by claude-opus-4-8 — minimum 100 conversations per week, with at least 5 samples per intent type so every query category gets coverage every week. Sampling is not random; intent-stratified sampling prevents low-frequency intents from going unreviewed for weeks at a time. All escalations are reviewed in full, without exception.
+
+In addition, an automated check runs on every response: if the LLM narrative contains any numeric value that differs from the pre-computed engine output (beyond floating-point tolerance), the response is flagged for human review. This is belt-and-suspenders on top of G6 and catches any prompt drift before it becomes a pattern.
+
+The rubric covers: factual accuracy (does the narrative match the pre-computed data?), tone appropriateness for investor sophistication tier, compliance safety (no advice given), and completeness (were all parts of the question addressed?). Results are reported to the product team weekly. Sustained quality regression triggers a prompt review sprint.
 
 ### Observability
 
@@ -214,7 +218,7 @@ A random sample of 50 production conversations is reviewed weekly by claude-opus
 
 - Investor PII (name, email, bank details) is resolved from the portfolio DB by the API layer and never included in model prompts. The model receives `investor_id` and pre-computed domain objects only.
 - All model API calls go through the Anthropic API with a Data Processing Agreement in place. EU investor data is processed on EU-region endpoints.
-- GDPR right-to-erasure: investor data is deleted from Redis within 1 hour of request, from audit logs within 72 hours per policy. Portfolio database deletion follows EquiTie's existing retention policy.
+- GDPR right-to-erasure: investor data is deleted from Redis within 1 hour of request, from audit logs within 72 hours per policy. Portfolio database deletion follows EquiTie's existing retention policy. This is implemented before any EU investor data enters the production system — Month 1, not a later phase. Collecting EU investor data without a compliant deletion path is a legal exposure, not a roadmap tradeoff.
 - API keys rotated on a 90-day schedule via AWS Secrets Manager. Key compromise triggers immediate rotation without deploy.
 
 ### Role-based access
@@ -258,27 +262,40 @@ The compliance contractor should be retained throughout — not just for launch 
 
 ## 9. Six-month phased timeline
 
-### Month 1 — Production foundation
+### Phase 1: Foundation (Months 1–2)
+
+The goal of Phase 1 is not to ship investor-facing features — it is to earn the right to serve real investors. That means a validated data layer, a working RM dashboard, compliance baseline in place, and one signed pilot fund before the proactive layer goes anywhere near an LP. Features built on unreliable fund admin data or without a working RM handoff flow are a liability, not an asset.
+
+### Month 1 — Production foundation, RM layer, compliance baseline
 
 - Migrate from CSV to Postgres; finance engine reads from read replica
-- Event-driven data contracts: fund admin webhooks, KYC vendor integration
+- Event-driven data contracts: fund admin webhooks, KYC vendor integration — with explicit data quality validation using a real pilot fund's data before the proactive layer launches. Fund admin integrations (Carta/Assure) are frequently inconsistent across fund structures; this must be validated on real data, not assumed
+- GDPR right-to-erasure: implemented end-to-end before any EU investor data enters production (not deferred — see Section 7)
+- RM dashboard: escalation inbox and investor conversation view — first-class Month 1 deliverable built alongside the bot. An escalation path that routes to a RM who isn't watching a queue is not a working escalation path. The comms approval queue extends this dashboard in Month 4 when the drafting tool exists
 - Extend prototype: persistent chat history, streaming responses, mobile-responsive web
 - Auth hardening: `investor_id` bound server-side, not accepted from request body
 - CI pipeline: build + golden eval suite (100 test cases) gates every deploy
+- Engage one pilot fund manager — even unpaid — to get real operational data and begin the commercial relationship
 
-**Gate:** Finance engine produces correct results for all edge cases in the golden dataset. No deploy without green CI.
+**Gate:** Finance engine correct for all edge cases in the golden dataset. RM dashboard live and validated with at least one relationship manager. GDPR deletion confirmed end-to-end. Fund admin data quality validated on real fund data — not synthetic. Pilot fund signed.
 
-### Month 2 — Proactive layer
+### Month 2 — Proactive layer + pilot investors
 
-- Temporal.io scheduler: capital-call reminders (T−14, T−7, T−1), fee due-date alerts
+- Temporal.io scheduler: capital-call reminders (T−14, T−7, T−1), fee due-date alerts — launched only after Month 1 fund admin data quality is confirmed
 - KYC expiry detection and re-verification nudge flow
 - iOS TestFlight beta with APNs push notifications
 - Escalation detector: routes advice requests and distress signals to human RM
 - Evaluation harness expanded to 200 test cases including red-team suite
+- Pilot investors (5–10) from the signed fund actively using the app
+- Begin measuring: RM hours saved per week — this is the primary business metric and the foundation of the commercial story
 
-**Gate:** Pilot investors (5–10) actively using the app; at least 3 escalations handled end-to-end to validate the RM handoff flow.
+**Gate:** At least 3 escalations handled end-to-end to validate the RM handoff flow. Baseline RM hours-per-week established and tracked. Capital call acknowledgement rate logged.
 
-### Month 3 — Document workflows and iOS launch
+---
+
+### Phase 2: Value Delivery + iOS Launch (Months 3–4)
+
+### Month 3 — Document workflows, iOS launch, commercial model
 
 - DocuSign integration: subscription agreement and side letter request/completion flows
 - Investor onboarding flow (KYC → bank verification → first commitment)
@@ -286,36 +303,42 @@ The compliance contractor should be retained throughout — not just for launch 
 - Penetration test and security audit
 - Compliance review of all comms templates and guard rules
 - Langfuse observability fully wired; investor ops review queue live
+- Commercial model defined: pricing tiers, target AUM range, break-even model — this must happen before App Store submission, not after
+- App Store submission
 
-**Gate:** Security audit passed. Compliance sign-off on all bot-generated communication types. App Store submission.
+**Gate:** Security audit passed. Compliance sign-off on all bot-generated communication types. Commercial model approved by leadership. App Store submission.
 
-### Month 4 — Communications and comms-drafting tool
+### Month 4 — RM communications and intelligence layer
 
 - Internal comms drafting tool for RMs (AI drafts → RM reviews → sends)
 - Quarterly LP update generation with portfolio data embedded
 - G9 comms approval gate in investor ops dashboard
 - RAG layer for deal memos and fund documents (pgvector)
-- LLM-as-judge weekly pipeline running in production
+- LLM-as-judge weekly pipeline running in production with stratified sampling (see Section 6)
 
-**Gate:** At least 20 AI-drafted investor communications reviewed and sent by RMs. Evaluate quality, RM time-saving, and investor response rate vs manual comms.
+**Gate:** At least 20 AI-drafted investor communications reviewed and sent by RMs. Evaluate quality, RM time-saving vs Month 2 baseline, and investor response rate vs manual comms.
 
-### Month 5 — Intelligence and personalisation
+---
+
+### Phase 3: Intelligence + Commercialisation (Months 5–6)
+
+### Month 5 — Intelligence, personalisation, first commercial contract
 
 - Proactive portfolio insights: valuation milestone alerts, MOIC change summaries, concentration flags
 - Multi-turn conversation with full entity resolution (follow-up questions work)
 - Per-investor notification preferences (frequency, channel, topics)
 - A/B test haiku vs sonnet for notification copy; move low-complexity paths to haiku
 - Audit log replayability: any conversation reconstructible from session ID
+- Target: first paid customer contract signed — pilot fund or a referred fund from the pilot relationship
 
-**Gate:** 10% reduction in routine inbound investor ops queries (measurable via CRM ticket volume).
+**Gate:** 10% reduction in routine inbound investor ops queries (measurable via CRM ticket volume). First signed commercial contract.
 
 ### Month 6 — Hardening and scale
 
-- GDPR right-to-erasure implementation end-to-end
 - Cold start elimination (Lambda provisioned concurrency or Vercel fluid compute)
 - Full platform load test at 10× current investor count
 - Production runbook documented and reviewed by team
-- Retrospective: which capabilities drove engagement, which were low-value
+- Retrospective: which capabilities drove RM time-saving, which were low-value
 - Internal roadmap for next 6 months (what to build, what to buy, what to deprecate)
 
 **Gate:** P99 response latency <2s under load. Audit log reviewed by compliance and signed off.
@@ -330,10 +353,11 @@ The compliance contractor should be retained throughout — not just for launch 
 |---|---|---|
 | Model generates financial figures that differ from engine output | Low | Hard constraint in system prompt; golden evals catch any drift |
 | Investor perceives bot as giving investment advice | Medium | G7 output classifier; compliance review of all templates |
-| Fund admin API unreliable or slow | Medium | Nightly batch fallback with last-known-good mark; alert on sync failures |
+| Fund admin API unreliable or slow | Medium–High | Data quality validation sprint in Month 1 using real pilot fund data before proactive layer launches; nightly batch fallback with last-known-good mark; alert on sync failures. Carta/Assure API coverage is inconsistent across fund structures — this risk must be validated early, not assumed away |
 | KYC vendor downtime during onboarding flow | Low-Medium | Async flow with retry; RM fallback path always available |
 | App Store rejection for financial advice language | Medium | Legal review of app description and chatbot UI copy before submission |
 | Investor trust: "I want to speak to a person" | Medium | Escalation to named RM is one tap, always visible, never hidden |
+| RM adoption — RMs bypass escalation queue or ignore the dashboard | Medium | RM dashboard as Month 1 deliverable with RM onboarding; measure % escalations acknowledged within SLA from day one. An escalation feature no one watches is not a compliance safeguard |
 | Data breach — investor conversation logs | Low | PII not in logs, audit log encrypted, access control by role |
 
 ### Build vs buy
@@ -364,6 +388,12 @@ Cost derivation: 500 active investors × average 16 queries/day × 30 days = ~24
 | Langfuse + Datadog | £500–1,000 |
 | **Total infrastructure + AI** | **£7,500–14,000/month** |
 
-Team cost (6 FTE senior engineers, London): £900k–£1.1M/year fully loaded.
+Team cost (6 FTE senior engineers, London): £900k–£1.1M/year fully loaded (£75k–92k/month).
 
-**Unit economics:** At 500 active investors, infrastructure cost is £15–28/investor/month. If the assistant saves each RM 3 hours/week of routine servicing, and RM time is valued at £80/hour, the break-even is fewer than 2 investors per RM. The leverage is significant.
+**Unit economics (fully loaded):** Infrastructure cost alone is £15–28/investor/month at 500 investors — but that is the wrong break-even model. Including team cost, the fully-loaded cost per investor is £165–212/month. Pricing must reflect this; infrastructure-only unit economics are misleading at this stage.
+
+The value case is clear: if the assistant saves each RM 3 hours/week of routine servicing at £80/hour, that is £12,480/year per RM — or roughly £415/investor/year for an RM managing 30 investors. Per-investor pricing of £80–120/month is defensible on that value basis and leaves meaningful margin above fully-loaded cost at target scale.
+
+The more practical pricing model is per-fund rather than per-investor: a fund with 100 LPs and £500M AUM paying £15k–25k/month covers infrastructure and contributes materially to team cost. Break-even on team cost at this pricing requires 4–6 active fund clients — a reachable target by Month 12 if the pilot fund converts and refers one peer.
+
+The Month 3 milestone — commercial model defined — is when these numbers must be committed to by leadership, not when the first customer signs.

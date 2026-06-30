@@ -117,8 +117,9 @@ Every chat request and snapshot load follows this exact path — no shortcuts.
                       │  src/lib/composer/evidence.ts │
                       │  src/lib/composer/glossary.ts │
                       │                              │
-                      │  LLM call (GPT-4o) for       │
-                      │  narrative phrasing ONLY.    │
+                      │  LLM call (GPT-4o in proto-  │
+                      │  type; Claude in production) │
+                      │  for narrative phrasing ONLY.│
                       │  All numbers arrive pre-      │
                       │  computed from Layer 6.       │
                       │  Falls back to deterministic  │

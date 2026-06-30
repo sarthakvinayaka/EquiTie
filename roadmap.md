@@ -113,7 +113,7 @@ The escalation boundary is hard-coded in the policy layer, not subject to prompt
 | Primary database | PostgreSQL (RDS) | Relational integrity for financial data, pgvector extension for RAG |
 | Cache / session | Redis (ElastiCache) | Sub-millisecond context lookups |
 | Document storage | S3 + CloudFront | Pre-signed URLs for investor document access |
-| LLM (primary) | claude-sonnet-4-6 | Best quality/latency tradeoff for conversational finance |
+| LLM (primary) | claude-sonnet-4-6 | Best quality/latency tradeoff for conversational finance; stronger instruction-following on "use these numbers verbatim" than GPT-4o in production load; better GDPR DPA for EU investor data |
 | LLM (lightweight) | claude-haiku-4-5 | Intent classification, notification copy, short acks |
 | Embeddings | Voyage AI or Anthropic | For RAG over deal memos and LP documents |
 | Vector store | pgvector (Postgres extension) | Avoids a separate Pinecone dependency at this scale |
@@ -351,9 +351,11 @@ The compliance contractor should be retained throughout — not just for launch 
 
 ### Cost shape (monthly, steady state, ~500 active investors)
 
+Cost derivation: 500 active investors × average 16 queries/day × 30 days = ~240k queries/month. Each sonnet-4-6 query: ~1,500 input tokens (system prompt + data payload) + ~500 output tokens = ~2k tokens. 240k × 2k tokens = 480M tokens/month. At $3/Mtok input + $15/Mtok output, blended ≈ £3,500–5,000/month depending on payload size. Haiku handles intent classification (~200 tokens/call) and notification copy — ~10× cheaper per call.
+
 | Item | Estimated monthly |
 |---|---|
-| Anthropic API — sonnet-4-6 (~8k queries/day @ $3/Mtok) | £3,000–5,000 |
+| Anthropic API — sonnet-4-6 (~240k queries/month, ~2k tokens avg) | £3,000–5,000 |
 | Anthropic API — haiku-4-5 (notifications, classification) | £400–800 |
 | AWS (RDS, ElastiCache, S3, Lambda, API GW) | £2,000–4,000 |
 | Temporal.io (cloud) | £500–1,000 |

@@ -123,6 +123,32 @@ Add a GitHub Actions workflow that runs `npm test` and `next build` on every pus
 
 ---
 
+## Post-scaffolding iterations — what was found and fixed after the initial build
+
+The initial AI-generated scaffold passed all tests and ran end-to-end, but several correctness and quality issues were found on closer inspection. These required deliberate judgment calls, not just prompting.
+
+**8. Found and fixed: share price rounding in AI-generated text**
+
+The `fmt()` utility in `fx.ts` defaulted to `decimals = 0`, so all share prices passed to the LLM were rounded to whole numbers before the model ever saw them — $18.50 became "$19", $29.97 became "$30". The calculations used the correct raw values (so MOIC and current value were right), but the prose was misleading. Fixed by adding a `fmtPrice()` function that uses `minimumFractionDigits: 0 / maximumFractionDigits: 2`, showing decimals only when the value has them. Three call sites updated: `entrySharePrice`, `effectiveSharePrice`, `currentSharePrice` in the position detail response.
+
+**9. Found and fixed: net cash flow sign displayed as positive when negative**
+
+The `scaffold.ts` `account_statement` case built a `KeyMetric` for Net Cash Flow by trying to detect the sign from the formatted string (`netStr.includes("-")`). But `netCashFlow` is stored as `Math.abs(value)` — the string never contains a minus sign. So `isPositiveFlow` was always `true` → always green, always no "−" prefix. Fixed by reading `netCashFlowRaw` (the actual signed number) to determine both the colour sentiment and the display prefix.
+
+**10. Found and fixed: personalization tier logic — age overriding tech savviness**
+
+The initial personalization tier logic had `isNovice = techSavviness === "Low" || age >= 65`. This meant a 70-year-old with High tech savviness got novice treatment — jargon explanations, shorter answers, conclusion-first framing — which is patronising and wrong. Fixed: age ≥ 65 pushes toward novice only when `techSavviness !== "High"`. Tech savviness is the primary signal; age is a secondary modifier.
+
+**11. Added: portfolio shape context to system prompt**
+
+The initial personalization injected top sectors as a passive fact ("Their strongest exposure is in: X, Y, Z") with no instruction on how to use them. The AI ignored the field in most responses. Fixed by: (a) deriving a richer portfolio shape string (concentration level, multi-round follow-on companies), (b) adding an explicit instruction to each tier's style guide: "frame answers relative to this investor's specific positions, not generically", (c) adding Rule 7 to every system prompt: "Never be patronising. Adjust tone and depth, not respect."
+
+**What these iterations have in common**
+
+All four were cases where the AI got the structure right but the detail wrong. The test suite caught the sign bug in manual verification; the share price issue was caught by comparing UI text to CSV values; the personalization issues were caught by reading the spec requirements against the generated output line by line. AI is fast at producing plausible first drafts. It is not a substitute for reading what it actually produced.
+
+---
+
 ## Principles I used while working with AI on this case study
 
 **1. AI owns structure, I own correctness.**

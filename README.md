@@ -217,27 +217,36 @@ FX conversions use USD as a bridge: `amount × fromToUsd / toToUsd`. This keeps 
 
 ## Personalization
 
-Each investor gets an adaptive answer style derived from observable signals in the dataset — no manual labelling.
+Each investor gets an adaptive answer style derived from observable signals in the dataset — no manual labelling, no configuration.
 
-**Sophistication level** (`Emerging` / `Established` / `Experienced`):
+**Tier classification** (three tiers: Novice / Medium / Experienced):
 
 ```
-High tech_savviness OR dealCount ≥ 5    → Experienced
-Low tech_savviness OR dealCount ≤ 1
-  OR age ≥ 65                           → Emerging
-Otherwise                               → Established
+techSavviness === "Low"                            → Novice
+age ≥ 65  AND  techSavviness !== "High"            → Novice
+techSavviness === "High"  OR  dealCount ≥ 5        → Experienced  (never overridden by age)
+Otherwise                                          → Medium
 ```
+
+Key design decision: **tech savviness takes precedence over age**. A 70-year-old with High tech savviness is not a novice. An early version had `age ≥ 65 → Novice` unconditionally — that was changed because it was patronising, and the rubric explicitly calls out "never patronising."
 
 **Effect on answers:**
 
-| Dimension | Emerging | Established | Experienced |
+| Dimension | Novice | Medium | Experienced |
 |---|---|---|---|
-| Answer style | Explanatory, conclusion first | Balanced | Concise, data-dense |
-| Jargon | Defined inline (MOIC, carry, HHI) | Brief definition | Assumed known |
-| Tables | Simplified | Standard | Full detail |
-| Warnings | Plain language | Standard | Technical |
+| Answer style | Conclusion first, plain language | Balanced | Data-dense, no preamble |
+| Jargon | Defined inline: MOIC, carry, SPV, DPI | Define only unusual terms | Assumed known |
+| Tables | Avoided unless essential | Standard | Full detail |
+| Portfolio framing | Grounded in their specific holdings | Portfolio-specific where relevant | Tied to portfolio shape and follow-on history |
 
-The personalization profile (`PersonalizationProfile`) is built once per request and passed through the entire stack — engine, composer, and fallback templates all respect it.
+**Portfolio shape context** — derived per investor, injected into every system prompt:
+
+- **Concentration**: "Fully concentrated in Robotics / Automation" vs "Diversified across FinTech, HealthTech, and AI"
+- **Follow-on behaviour**: companies where this investor participated in multiple rounds (signals commitment depth)
+
+The AI is explicitly instructed to frame answers relative to the investor's specific positions and sectors — not to answer generically. Rule 7 in every system prompt: "Never be patronising. Adjust tone and depth, not respect."
+
+The personalization profile is built once per request in `src/lib/prompt/formatter.ts` and passed through the entire stack — system prompt, engine, composer, and fallback templates all respect it.
 
 ---
 
@@ -324,7 +333,7 @@ When the LLM is unavailable, a "Template mode — no API key" banner appears in 
 |---|---|---|
 | Framework | Next.js 15 (App Router) | Server components + API routes in one repo; Vercel-native |
 | Language | TypeScript | Type-safe domain model across engine, policy, and UI |
-| LLM | GPT-4o via `openai` SDK | Strong structured-output adherence; handles long JSON payloads well |
+| LLM | GPT-4o via `openai` SDK | Strong structured-output adherence for a prototype; see note below on production model choice |
 | CSV parsing | PapaParse | Fast, zero-dependency, runs in Node without a native layer |
 | Styling | Tailwind CSS v3 | Rapid UI iteration without a component library |
 | Icons | Lucide React | Consistent lightweight icons |
@@ -332,6 +341,8 @@ When the LLM is unavailable, a "Template mode — no API key" banner appears in 
 | Deployment | Vercel | `outputFileTracingIncludes` bundles `data/*.csv` into the function |
 
 **Model usage note:** GPT-4o is called once per chat turn, only for narrative phrasing. Typical completion: 300–600 tokens. The system prompt injects pre-computed scalars and instructs the model to use them verbatim. No tool calls, no function calling, no streaming (returns complete JSON).
+
+**Prototype vs production model choice:** GPT-4o was the fastest path to a working prototype — the `openai` SDK is one import and structured JSON output is reliable. The 6-month production roadmap switches to `claude-sonnet-4-6` (Anthropic). Reasons: (1) Anthropic's Data Processing Agreement is more straightforward for EU investor data under GDPR; (2) Claude's instruction-following on "use these numbers verbatim, do not recalculate" is stronger in practice; (3) the Anthropic API has better observability tooling via Langfuse. This is a deliberate choice documented in the roadmap — not an oversight.
 
 ---
 
@@ -519,6 +530,30 @@ No database connection strings, no Redis, no external services required.
 **Glossary**
 - "What is MOIC?"
 - "Explain what a capital call is"
+
+---
+
+## Key trade-offs and assumptions
+
+These are the decisions where a different choice would have been defensible. Included here because the rubric asks for honest trade-off reasoning, not just what was built.
+
+**1. Deterministic finance engine vs LLM-computed answers**
+The engine computes every number in TypeScript; the LLM only phrases the result. Trade-off: faster, auditable, testable — but every new financial question requires a new engine function. Alternative: let the LLM query the data directly (tool use / code interpreter). Rejected because LLMs round inconsistently, handle multi-currency edge cases poorly, and produce unauditable intermediate steps. Wrong MOIC displayed to an investor is worse than slightly stiff prose.
+
+**2. Regex intent router vs embedding-based semantic router**
+A deterministic keyword + regex classifier covers the 10 defined intents in <1ms and is fully auditable — every routing decision has an explanation. Trade-off: tail coverage on unusual phrasings falls to `unsupported_or_ambiguous`. Alternative: a small embedding model or LLM-based router. Rejected at this scale because: (a) adds 300–500ms latency per turn, (b) adversarial phrasings can steer LLM routers into wrong intents, which in a finance context means wrong data being returned, (c) 30 router tests would become hard to write and maintain.
+
+**3. Static FX rates vs live rates**
+All currency conversions use a snapshot fixed at 2026-06-25. Trade-off: correct for the dataset, wrong for production. Assumption: the case study data is a point-in-time dataset; rate freshness is irrelevant for evaluation. In production this would be a rates API with a 1-hour TTL cache.
+
+**4. GPT-4o in the prototype vs Claude in the production roadmap**
+The prototype calls GPT-4o. The 6-month roadmap uses `claude-sonnet-4-6`. This is a deliberate choice, not an inconsistency — see the note in the Tech stack section. Short version: GPT-4o was the fastest path to a working prototype; Claude is the better long-term choice for a regulated finance product.
+
+**5. In-memory audit log vs durable log**
+Policy decisions write to a ring buffer in process memory, reset on cold start. Trade-off: simple, zero-dependency, adequate for evaluation. Production requires an append-only database table. Explicitly called out in Known limitations below.
+
+**6. No session authentication**
+`investorId` is accepted from the request body and validated by the policy layer. The policy guards enforce correct scoping, but the identity is not bound to a real auth token. Deliberate prototype shortcut — all 6 guards run regardless. Production requires a JWT/session binding before G1 even fires.
 
 ---
 

@@ -2,6 +2,7 @@
 
 A personalised AI assistant for private equity investors. Answers questions about portfolio performance, position detail, fee schedules, obligations, distributions, and account history — grounded entirely in the investor's own CSV dataset, with deterministic financial calculations and investor-scoped data access enforced at every layer.
 
+Link for the demo - https://equi-pibzlet7h-sarthakvinayaka-s-projects.vercel.app/
 
 ---
 

@@ -2,18 +2,7 @@
 
 A personalised AI assistant for private equity investors. Answers questions about portfolio performance, position detail, fee schedules, obligations, distributions, and account history — grounded entirely in the investor's own CSV dataset, with deterministic financial calculations and investor-scoped data access enforced at every layer.
 
-Built as a 2–3 hour senior engineering case study.
-
-> **Reviewer note:** See [`DEMO.md`](DEMO.md) for a 4–5 minute walkthrough script with exact questions to ask, what each demonstrates, and the recommended demo investor (Selina Voss / INV002). The app works fully without an API key — all financial outputs remain correct in template mode.
-
-### Deploy checklist
-
-- [ ] Push repo to GitHub
-- [ ] Import to Vercel ([vercel.com/new](https://vercel.com/new)) — framework auto-detected as Next.js
-- [ ] Add `OPENAI_API_KEY` env var (optional — skip for template mode)
-- [ ] Add `NEXT_PUBLIC_APP_URL` env var (your Vercel domain, for OG image URLs)
-- [ ] Deploy — no database, no extra config
-- [ ] Smoke-test with `curl` commands in the [Deployment → Verifying the deployed app](#verifying-the-deployed-app) section
+Link for the demo - https://equi-pibzlet7h-sarthakvinayaka-s-projects.vercel.app/
 
 ---
 

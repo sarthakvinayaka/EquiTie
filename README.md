@@ -135,7 +135,7 @@ This makes the prototype verifiable, auditable, and safe to demo without an Open
          │  src/lib/query/__tests__/         │
          │  src/lib/composer/__tests__/      │
          │                                   │
-         │  378 deterministic tests.         │
+         │  381 deterministic tests.         │
          │  Evidence integrity check         │
          │  (G6) runs at request time.       │
          └───────────────────────────────────┘
@@ -238,7 +238,7 @@ Every answer is grounded in explicit source rows. The evidence panel in the UI s
 
 **Post-computation integrity check (G6):** after the engine runs, `guardEvidenceIntegrity` verifies that every evidence row's primary key belongs to the scoped investor. If any row belongs to a different investor, the request is blocked and logged. This is belt-and-suspenders — the engine already scopes to `investorId` — but the check makes it explicitly auditable.
 
-**Test harness** — 378 deterministic tests, 9 suites, runs in under 1 second:
+**Test harness** — 381 deterministic tests, 9 suites, runs in under 1 second:
 
 | Suite | What it proves |
 |---|---|
@@ -266,7 +266,7 @@ Six guards run in a fixed order on every request. Each returns `{ allowed: boole
 | Guard | Trigger condition | Response |
 |---|---|---|
 | G1 `guardInvestorExists` | `investorId` not in DB | 403 |
-| G2 `guardNoCrossInvestorRequest` | message contains another investor name or "other investors" | 403 blocked |
+| G2 `guardNoCrossInvestorRequest` | message contains another investor ID or cross-investor phrase; engine also checks against all 112 investor names | 403 blocked |
 | G3 `guardNoExternalDataRequest` | message asks for live prices, Bloomberg, market data | 400 clarification |
 | G4 `guardAmbiguousEntity` | extracted company matches 0 or 2+ names | 200 clarification |
 | G5 `guardCompanyInPortfolio` | extracted company not in this investor's allocations | 404 |

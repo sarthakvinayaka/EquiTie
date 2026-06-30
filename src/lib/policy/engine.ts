@@ -54,7 +54,7 @@ export function runPolicyChecks(
     return { allowed: false, violationCode: g1.violationCode, safeResponse: g1.safeResponse, logEntry };
   }
 
-  // G2 — No cross-investor references
+  // G2 — No cross-investor references (ID-based and pattern-based)
   const g2 = guardNoCrossInvestorRequest(message, investorId);
   if (!g2.allowed) {
     const logEntry = logPolicyDecision({
@@ -67,6 +67,32 @@ export function runPolicyChecks(
       messageSummary,
     });
     return { allowed: false, violationCode: g2.violationCode, safeResponse: g2.safeResponse, logEntry };
+  }
+
+  // G2b — Also block messages that contain another investor's full name
+  {
+    const msgLower = message.toLowerCase();
+    for (const [otherId, otherInv] of db.investors) {
+      if (otherId === investorId) continue;
+      const otherName = otherInv.investor_name.toLowerCase();
+      if (otherName.length > 3 && msgLower.includes(otherName)) {
+        const logEntry = logPolicyDecision({
+          timestamp: new Date().toISOString(),
+          investorId,
+          action,
+          allowed: false,
+          violationCode: "CROSS_INVESTOR_ACCESS",
+          reason: `Message references other investor "${otherInv.investor_name}"`,
+          messageSummary,
+        });
+        return {
+          allowed: false,
+          violationCode: "CROSS_INVESTOR_ACCESS",
+          safeResponse: "I can only provide information about your own portfolio.",
+          logEntry,
+        };
+      }
+    }
   }
 
   // G3 — No external/market data requests

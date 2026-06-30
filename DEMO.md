@@ -174,7 +174,7 @@ Ask the same question:
 
 **The bet was that trust requires verifiability, not fluency.**
 
-Most AI finance demos look impressive until someone asks how a number was calculated. In this build, every number is traceable: the evidence panel shows the exact source records, the engine is pure TypeScript with a 378-test harness, and the system works correctly with no API key at all. The LLM handles phrasing. The code handles correctness.
+Most AI finance demos look impressive until someone asks how a number was calculated. In this build, every number is traceable: the evidence panel shows the exact source records, the engine is pure TypeScript with a 381-test harness, and the system works correctly with no API key at all. The LLM handles phrasing. The code handles correctness.
 
 Specific things worth calling out to a reviewer:
 
@@ -188,7 +188,7 @@ Specific things worth calling out to a reviewer:
 
 **5. Architecture that scales.** The 10-layer design maps directly to a production engineering team. Each layer has a defined responsibility and a clear interface. The path from prototype to a production iOS RM bot is described in `roadmap.md` — and the prototype's architecture is already consistent with that path.
 
-**6. Credible evaluation harness.** 378 tests across 9 suites, covering golden pinned values, investor isolation, red-team attacks, fallback behaviour, and routing. Runs in under one second. The golden tests were computed from the source CSVs by hand, not generated from the engine output.
+**6. Credible evaluation harness.** 381 tests across 9 suites, covering golden pinned values, investor isolation, red-team attacks, fallback behaviour, and routing. Runs in under one second. The golden tests were computed from the source CSVs by hand, not generated from the engine output.
 
 ---
 

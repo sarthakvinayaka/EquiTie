@@ -74,7 +74,7 @@ The AI flagged streaming responses as an early must-have. Deprioritised: the pre
 
 **Automated test harness — primary mechanism**
 
-378 deterministic tests across 9 suites, all running against the real parsed dataset with no mocks. Key suites:
+381 deterministic tests across 9 suites, all running against the real parsed dataset with no mocks. Key suites:
 
 - `golden.test.ts` — pinned values computed by hand from the CSVs. INV001 statement total (227,600 USD ÷ 1.35 GBP/USD = 168,592 GBP), Forgecraft 3-round contributed (90,600 USD → 67,111 GBP), INV001 portfolio MOIC range bounded to 2.4–3.0×, INV009 performance fee effective rate confirmed at 10% vs 20% standard
 - `isolation.test.ts` — scoped DB integrity, cross-investor evidence checks, INV001/INV002 disjoint allocation ID assertions

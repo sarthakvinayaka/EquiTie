@@ -260,6 +260,44 @@ describe("cross-investor company access via guardCompanyInPortfolio", () => {
   });
 });
 
+// ─── Cross-investor name attacks (G2b — engine-level check) ──────────────────
+
+describe("cross-investor name mentions in message (G2b)", () => {
+  it("blocks a message that contains another investor's full name", () => {
+    const db = getDatabase();
+    // INV_A asks about INV_B by their real name
+    const nameB = db.investors.get(INV_B)!.investor_name;
+    const result = runPolicyChecks(
+      INV_A,
+      `What does ${nameB}'s portfolio look like?`,
+      db
+    );
+    expect(result.allowed).toBe(false);
+    expect(result.violationCode).toBe("CROSS_INVESTOR_ACCESS");
+    expect(result.investorContext).toBeUndefined();
+  });
+
+  it("does not block a message that contains the logged-in investor's own name", () => {
+    const db = getDatabase();
+    const nameA = db.investors.get(INV_A)!.investor_name;
+    const result = runPolicyChecks(
+      INV_A,
+      `Give me a summary of ${nameA}'s portfolio`,
+      db
+    );
+    expect(result.allowed).toBe(true);
+    expect(result.investorContext).toBeDefined();
+  });
+
+  it("safe response for name-based cross-investor block does not reveal any investor IDs", () => {
+    const db = getDatabase();
+    const nameB = db.investors.get(INV_B)!.investor_name;
+    const result = runPolicyChecks(INV_A, `Compare my portfolio with ${nameB}`, db);
+    expect(result.allowed).toBe(false);
+    expect(result.safeResponse).not.toMatch(/INV\d+/);
+  });
+});
+
 // ─── Full engine: runPolicyChecks end-to-end ──────────────────────────────────
 
 describe("runPolicyChecks — full engine (cross-investor blocked before data access)", () => {
